@@ -1,14 +1,14 @@
-# Joga na caixa
+#  Joga na caixa (Throws in the box)
 
+This is a pet project to backup files in Amazon S3 and Google Cloud Storage. Improvements are expected (if you can help, would be wonderful).
 
+## Purpose
+The function of this script is to back up files from a particular folder in the Google Cloud and Amazon S3 services. Files are sent compressed (to save space) and generate a label locally with the items included in the packet sent. It also has a function that allows searching and downloading a file (package).
 
-## Propósito
-A função deste script é fazer backups de arquivos de uma determinada pasta nos serviços do Google Cloud e Amazon S3. Os arquivos são enviados de forma compactada (para poupar espaço) e geram uma etiqueta localmente com os itens inclusos no pacote enviado. Tem também uma função que permite procurar e baixar um arquivo dentro de um pacote. 
-
-## A melhorar
-* Arquivo de configuração para simplificar processo de instalação 
-* Instalação em multiplos sistemas operacionais (ele foi otimizado para OSX)
-* Nome dinâmico do bucket na Amazon S3 (você vai ter que mudar o nome para usar)
+## Todo
+* Configuration file
+* Multi OS version (now it's optmized for OSX)
+* Ask for a bucket name on Amazon (you should rename before use)
 
 
 
