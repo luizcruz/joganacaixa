@@ -1,0 +1,39 @@
+compression:
+  algorithm: zst  # gz | bz2 | xz | zst  (zst = zstandard: fastest with best ratio)
+  exclude:
+    - .git
+    - .escorregador
+    - .etiqueta
+    - __pycache__
+    - "*.pyc"
+    - node_modules
+    - "*.tar.gz"
+    - "*.tar.zst"
+
+storage:
+  # AWS S3 — use storage_class: glacier or deep_archive for long-term cold storage
+  - type: s3
+    bucket: my-backup-bucket
+    region: sa-east-1
+    storage_class: glacier       # standard | glacier | deep_archive | glacier_ir
+    prefix: backups/
+
+  # Google Cloud Storage — use storage_class: archive for cheapest long-term storage
+  - type: gcs
+    bucket: my-backup-bucket
+    region: southamerica-east1
+    storage_class: archive       # standard | nearline | coldline | archive
+    prefix: backups/
+
+  # Azure Blob Storage
+  - type: azure
+    container: backups
+    connection_string: "DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+    prefix: backups/
+
+  # Local filesystem — useful for testing without cloud credentials
+  - type: local
+    root: /tmp/joganacaixa-test
+
+staging_dir: .escorregador
+manifest_dir: .etiqueta
