@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Joga na Caixa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --bg:       #07080f;
+  --surface:  #0f1117;
+  --s2:       #141720;
+  --s3:       #1b1f2e;
+  --border:   rgba(255,255,255,0.06);
+  --borderh:  rgba(255,255,255,0.12);
+  --accent:   #7c3aed;
+  --acl:      #a78bfa;
+  --glow:     rgba(124,58,237,0.22);
+  --text:     #e2e8f0;
+  --muted:    #64748b;
+  --muted2:   #475569;
+  --ok:       #10b981;
+  --err:      #ef4444;
+  --warn:     #f59e0b;
+  --nav:      64px;
+  --r:        12px;
+  --rs:       8px;
+  --t:        180ms cubic-bezier(.4,0,.2,1);
+}
+
+html,body{height:100%}
+body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+.blobs{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.3}
+.b1{width:700px;height:700px;background:radial-gradient(circle,#7c3aed 0%,transparent 65%);top:-250px;left:-150px;animation:drift 14s ease-in-out infinite alternate}
+.b2{width:500px;height:500px;background:radial-gradient(circle,#4f46e5 0%,transparent 65%);bottom:-180px;right:-120px;animation:drift 18s ease-in-out infinite alternate-reverse}
+.b3{width:350px;height:350px;background:radial-gradient(circle,#0ea5e9 0%,transparent 65%);top:55%;left:55%;opacity:.12;animation:drift 11s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(40px,25px) scale(1.06)}}
+
+nav{position:fixed;top:0;left:0;right:0;height:var(--nav);background:rgba(7,8,15,.82);backdrop-filter:blur(24px) saturate(1.6);border-bottom:1px solid var(--border);z-index:100;display:flex;align-items:center;padding:0 24px;gap:28px}
+.brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.brand-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--accent),#4f46e5);border-radius:9px;display:flex;align-items:center;justify-content:center}
+.brand-name{font-size:15px;font-weight:600;letter-spacing:-.02em}
+.tabs{display:flex;gap:2px;flex:1}
+.tab{padding:7px 14px;border-radius:var(--rs);border:none;background:transparent;color:var(--muted);font-family:inherit;font-size:13.5px;font-weight:500;cursor:pointer;transition:all var(--t);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.tab:hover{color:var(--text);background:var(--s3)}
+.tab.on{color:var(--acl);background:rgba(124,58,237,.14)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:all var(--t)}
+.dot.ok{background:var(--ok);box-shadow:0 0 7px var(--ok)}
+.dot.err{background:var(--err)}
+.api-st{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);flex-shrink:0}
+
+main{position:relative;z-index:1;padding-top:var(--nav);min-height:100vh}
+.view{display:none;max-width:1200px;margin:0 auto;padding:40px 24px 90px}
+.view.on{display:block}
+.ph{margin-bottom:32px}
+.ph h1{font-size:27px;font-weight:700;letter-spacing:-.03em;background:linear-gradient(135deg,var(--text) 30%,var(--muted));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:5px}
+.ph p{font-size:13px;color:var(--muted)}
+
+.card{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:22px 24px;transition:border-color var(--t)}
+.card:hover{border-color:var(--borderh)}
+.card-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:18px}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:36px}
+.stat{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:18px 22px;position:relative;overflow:hidden;transition:all var(--t)}
+.stat::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity var(--t)}
+.stat:hover::after{opacity:1}
+.stat:hover{border-color:var(--borderh);transform:translateY(-1px)}
+.stat-ico{font-size:22px;margin-bottom:10px}
+.stat-lbl{font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.06em}
+.stat-val{font-size:34px;font-weight:700;letter-spacing:-.04em;line-height:1;margin:4px 0 2px}
+.stat-sub{font-size:11px;color:var(--muted2)}
+
+.recent-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;transition:color var(--t)}
+.recent-row:last-child{border-bottom:none}
+.recent-row:hover{color:var(--acl)}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.store-wrap{display:grid;grid-template-columns:1fr 340px;gap:22px;align-items:start}
+@media(max-width:760px){.store-wrap{grid-template-columns:1fr}}
+.store-sidebar{display:flex;flex-direction:column;gap:16px}
+
+.drop{border:2px dashed rgba(255,255,255,.08);border-radius:16px;padding:54px 36px;text-align:center;cursor:pointer;transition:all var(--t);position:relative;overflow:hidden}
+.drop::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 60%,rgba(124,58,237,.1) 0%,transparent 65%);opacity:0;transition:opacity var(--t)}
+.drop:hover::before,.drop.over::before{opacity:1}
+.drop:hover,.drop.over{border-color:var(--accent);background:rgba(124,58,237,.04)}
+.drop.over{border-style:solid;transform:scale(1.008)}
+.drop-ico{width:68px;height:68px;margin:0 auto 18px;background:linear-gradient(135deg,rgba(124,58,237,.2),rgba(79,70,229,.2));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;transition:transform var(--t)}
+.drop:hover .drop-ico{transform:scale(1.12) rotate(-5deg)}
+.drop h2{font-size:17px;font-weight:600;margin-bottom:6px}
+.drop p{font-size:13px;color:var(--muted);margin-bottom:18px}
+.browse{display:inline-block;padding:8px 22px;background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.28);border-radius:100px;color:var(--acl);font-size:13px;font-weight:500;cursor:pointer;transition:all var(--t)}
+.browse:hover{background:rgba(124,58,237,.26);border-color:rgba(124,58,237,.5)}
+#file-input{display:none}
+
+.prog-wrap{display:none;flex-direction:column;align-items:center;gap:14px;padding:36px}
+.prog-wrap.on{display:flex}
+.ring-box{position:relative;width:104px;height:104px}
+.ring{transform:rotate(-90deg)}
+.ring-track{fill:none;stroke:var(--border);stroke-width:7}
+.ring-fill{fill:none;stroke:url(#rg);stroke-width:7;stroke-linecap:round;stroke-dasharray:295;stroke-dashoffset:295;transition:stroke-dashoffset .08s linear}
+.ring-pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace}
+.prog-lbl{font-size:13px;color:var(--muted)}
+
+.up-result{display:none;border:1px solid rgba(16,185,129,.2);background:rgba(16,185,129,.05);border-radius:var(--r);padding:20px;animation:fiu .3s ease}
+.up-result.on{display:block}
+.res-id{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--ok);margin-bottom:5px}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+
+.algo-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.apill{padding:6px 14px;border-radius:100px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:12px;cursor:pointer;transition:all var(--t)}
+.apill:hover{border-color:var(--borderh);color:var(--text)}
+.apill.on{border-color:transparent;color:#fff;font-weight:500}
+.apill[data-a="gz"].on{background:#059669}
+.apill[data-a="bz2"].on{background:#0284c7}
+.apill[data-a="xz"].on{background:#d97706}
+.apill[data-a="zst"].on{background:#7c3aed}
+
+.info-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:9px 0;border-bottom:1px solid var(--border)}
+.info-row:last-child{border-bottom:none}
+.info-row .lbl{color:var(--muted);font-family:'JetBrains Mono',monospace}
+.info-row .val{color:var(--muted);font-size:11px}
+
+.tb{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+.cbadge{background:rgba(124,58,237,.14);color:var(--acl);border-radius:100px;padding:2px 10px;font-size:11px;font-weight:600}
+.refresh{padding:7px 14px;background:var(--s2);border:1px solid var(--border);border-radius:var(--rs);color:var(--muted);font-family:inherit;font-size:12px;cursor:pointer;transition:all var(--t);display:flex;align-items:center;gap:5px;margin-left:auto}
+.refresh:hover{border-color:var(--borderh);color:var(--text)}
+
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.pkg{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;transition:all var(--t);display:flex;flex-direction:column;animation:fiu .3s ease both}
+.pkg:hover{border-color:var(--borderh);transform:translateY(-2px);box-shadow:0 10px 36px rgba(0,0,0,.35)}
+.pkg-bar{height:3px}
+.pkg[data-a="gz"] .pkg-bar{background:linear-gradient(90deg,#059669,#34d399)}
+.pkg[data-a="bz2"] .pkg-bar{background:linear-gradient(90deg,#0284c7,#38bdf8)}
+.pkg[data-a="xz"] .pkg-bar{background:linear-gradient(90deg,#d97706,#fbbf24)}
+.pkg[data-a="zst"] .pkg-bar{background:linear-gradient(90deg,#7c3aed,#a78bfa)}
+.pkg-body{padding:15px 18px;flex:1}
+.pkg-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
+.abadge{padding:3px 9px;border-radius:100px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:.04em;text-transform:uppercase}
+.abadge.gz{background:rgba(5,150,105,.14);color:#34d399;border:1px solid rgba(5,150,105,.28)}
+.abadge.bz2{background:rgba(2,132,199,.14);color:#38bdf8;border:1px solid rgba(2,132,199,.28)}
+.abadge.xz{background:rgba(217,119,6,.14);color:#fbbf24;border:1px solid rgba(217,119,6,.28)}
+.abadge.zst{background:rgba(124,58,237,.14);color:#a78bfa;border:1px solid rgba(124,58,237,.28)}
+.pkg-date{font-size:11px;color:var(--muted)}
+.pkg-id{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:500;margin-bottom:8px}
+.pkg-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fc{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:3px}
+.btags{display:flex;flex-wrap:wrap;gap:4px}
+.bt{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:500}
+.bt.s3{background:rgba(255,153,0,.1);color:#ff9900}
+.bt.gcs{background:rgba(66,133,244,.1);color:#60a5fa}
+.bt.azure{background:rgba(0,120,212,.1);color:#60a5fa}
+.bt.local{background:rgba(100,116,139,.1);color:#94a3b8}
+
+.pkg-acts{padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:6px}
+.btn{padding:5px 11px;border-radius:var(--rs);border:none;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:all var(--t);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.btn-g{background:var(--s3);color:var(--muted);border:1px solid var(--border)}
+.btn-g:hover{color:var(--text);border-color:var(--borderh)}
+.btn-p{background:var(--accent);color:#fff}
+.btn-p:hover{background:#6d28d9}
+.btn-d{background:rgba(239,68,68,.09);color:var(--err);border:1px solid rgba(239,68,68,.18);margin-left:auto}
+.btn-d:hover{background:rgba(239,68,68,.18)}
+
+.files{overflow:hidden;max-height:0;transition:max-height .3s ease}
+.files.on{max-height:280px}
+.files-in{padding:10px 18px;max-height:280px;overflow-y:auto;border-top:1px solid var(--border)}
+.files-in::-webkit-scrollbar{width:3px}
+.files-in::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.fi{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);padding:3px 0;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:5px}
+.fi:last-child{border:none}
+.fi::before{content:'›';color:var(--acl);opacity:.5;flex-shrink:0}
+
+.si-wrap{position:relative;margin-bottom:22px}
+.si-icon{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.si{width:100%;padding:13px 16px 13px 44px;background:var(--s2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-family:inherit;font-size:15px;outline:none;transition:all var(--t)}
+.si:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.si::placeholder{color:var(--muted2)}
+.sr-card{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;animation:fiu .2s ease}
+.sr-head{padding:13px 18px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:background var(--t)}
+.sr-head:hover{background:var(--s3)}
+.sr-matches{padding:0 18px 13px;display:flex;flex-direction:column;gap:4px}
+.mf{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);padding:4px 8px;border-radius:4px;background:var(--s3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mf mark{background:rgba(124,58,237,.28);color:var(--acl);border-radius:2px;padding:0 2px}
+
+.empty{text-align:center;padding:70px 40px;color:var(--muted)}
+.empty-ico{font-size:44px;margin-bottom:14px;opacity:.35;display:block}
+.empty h3{font-size:17px;font-weight:600;color:var(--text);margin-bottom:6px}
+.empty p{font-size:13px;margin-bottom:18px}
+
+.sk{background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%);background-size:200% 100%;animation:shimmer 1.6s infinite;border-radius:var(--rs)}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+#toasts{position:fixed;bottom:22px;right:22px;z-index:1000;display:flex;flex-direction:column;gap:7px;pointer-events:none}
+.toast{padding:11px 15px;border-radius:var(--rs);font-size:13px;font-weight:500;max-width:310px;display:flex;align-items:center;gap:8px;animation:toast-in .25s ease;pointer-events:all;border:1px solid transparent;box-shadow:0 4px 24px rgba(0,0,0,.4);backdrop-filter:blur(8px)}
+.toast.ok{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.28);color:#34d399}
+.toast.err{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.28);color:#fca5a5}
+.toast.info{background:rgba(124,58,237,.12);border-color:rgba(124,58,237,.28);color:var(--acl)}
+@keyframes toast-in{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+
+@keyframes fiu{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{animation:spin .8s linear infinite}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#7c3aed"/>
+      <stop offset="100%" style="stop-color:#4f46e5"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="blobs">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+</div>
+
+<nav>
+  <div class="brand">
+    <div class="brand-icon">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+        <line x1="12" y1="22.08" x2="12" y2="12"/>
+      </svg>
+    </div>
+    <span class="brand-name">Joga na Caixa</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" data-v="dashboard">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </button>
+    <button class="tab" data-v="store">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Store
+    </button>
+    <button class="tab" data-v="packages">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      Packages
+    </button>
+    <button class="tab" data-v="search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Search
+    </button>
+  </div>
+
+  <div class="api-st">
+    <div class="dot" id="api-dot"></div>
+    <span id="api-txt">Conectando...</span>
+  </div>
+</nav>
+
+<main>
+
+  <section class="view on" id="view-dashboard">
+    <div class="ph"><h1>Dashboard</h1><p>Visão geral dos seus backups multi-cloud</p></div>
+    <div class="stats">
+      <div class="stat"><div class="stat-ico">📦</div><div class="stat-lbl">Pacotes</div><div class="stat-val" id="s-pkgs">—</div><div class="stat-sub">arquivos comprimidos</div></div>
+      <div class="stat"><div class="stat-ico">📄</div><div class="stat-lbl">Arquivos</div><div class="stat-val" id="s-files">—</div><div class="stat-sub">total indexado</div></div>
+      <div class="stat"><div class="stat-ico">☁️</div><div class="stat-lbl">Backends</div><div class="stat-val" id="s-backs">—</div><div class="stat-sub">nuvens distintas</div></div>
+      <div class="stat"><div class="stat-ico">🗜️</div><div class="stat-lbl">Algoritmos</div><div class="stat-val" id="s-algs">—</div><div class="stat-sub">em uso</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Pacotes recentes</div>
+      <div id="recent">
+        <div class="sk" style="height:38px;margin-bottom:3px"></div>
+        <div class="sk" style="height:38px;margin-bottom:3px"></div>
+        <div class="sk" style="height:38px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-store">
+    <div class="ph"><h1>Store</h1><p>Comprima e envie para todos os backends em paralelo</p></div>
+    <div class="store-wrap">
+      <div>
+        <div class="drop" id="drop">
+          <input type="file" id="file-input">
+          <div id="drop-default">
+            <div class="drop-ico">📤</div>
+            <h2>Arraste o arquivo aqui</h2>
+            <p>ou clique para selecionar</p>
+            <label class="browse" for="file-input">Escolher arquivo</label>
+          </div>
+          <div class="prog-wrap" id="prog">
+            <div class="ring-box">
+              <svg class="ring" width="104" height="104" viewBox="0 0 104 104">
+                <circle class="ring-track" cx="52" cy="52" r="47"/>
+                <circle class="ring-fill" id="ring-fill" cx="52" cy="52" r="47"/>
+              </svg>
+              <div class="ring-pct" id="ring-pct">0%</div>
+            </div>
+            <div class="prog-lbl" id="prog-lbl">Enviando...</div>
+          </div>
+        </div>
+        <div class="up-result" id="up-result">
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+            <span style="font-size:20px">✅</span>
+            <strong style="font-size:14px">Upload concluído com sucesso</strong>
+          </div>
+          <div class="res-id" id="res-id"></div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px" id="res-files"></div>
+          <div class="locs" id="res-locs"></div>
+          <button class="btn btn-g" style="margin-top:16px" onclick="resetStore()">Novo upload</button>
+        </div>
+      </div>
+      <div class="store-sidebar">
+        <div class="card">
+          <div class="card-title">Compressão</div>
+          <div class="algo-row">
+            <button class="apill" data-a="gz">gz</button>
+            <button class="apill" data-a="bz2">bz2</button>
+            <button class="apill" data-a="xz">xz</button>
+            <button class="apill on" data-a="zst">zst ⚡</button>
+          </div>
+          <div style="margin-top:16px">
+            <div class="info-row"><span class="lbl">gz</span><span class="val">rápido · suporte universal</span></div>
+            <div class="info-row"><span class="lbl">bz2</span><span class="val">melhor razão que gz</span></div>
+            <div class="info-row"><span class="lbl">xz</span><span class="val">melhor razão · lento</span></div>
+            <div class="info-row"><span class="lbl">zst ⚡</span><span class="val">rápido + melhor razão</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Fluxo</div>
+          <div style="font-size:12.5px;color:var(--muted);line-height:2;display:flex;flex-direction:column;gap:2px">
+            <span>① Arquivo comprimido em staging</span>
+            <span>② Upload paralelo para todos os backends</span>
+            <span>③ Manifest JSON salvo em <code style="font-size:11px;color:var(--acl)">.etiqueta/</code></span>
+            <span>④ Arquivo de staging deletado</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-packages">
+    <div class="ph"><h1>Packages</h1><p>Todos os backups armazenados localmente</p></div>
+    <div class="tb">
+      <span class="cbadge" id="pkg-count">— pacotes</span>
+      <button class="refresh" onclick="loadPackages()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Atualizar
+      </button>
+    </div>
+    <div class="pgrid" id="pgrid">
+      <div class="sk" style="height:175px;border-radius:12px"></div>
+      <div class="sk" style="height:175px;border-radius:12px"></div>
+      <div class="sk" style="height:175px;border-radius:12px"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-search">
+    <div class="ph"><h1>Search</h1><p>Encontre arquivos dentro de qualquer pacote armazenado</p></div>
+    <div class="si-wrap">
+      <div class="si-icon">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </div>
+      <input class="si" id="search-in" type="text" placeholder="Nome do arquivo, ex: config.yaml" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="search-out" style="display:flex;flex-direction:column;gap:10px"></div>
+  </section>
+
+</main>
+<div id="toasts"></div>
+
+<script>
+const S = { pkgs: [], alg: 'zst', busy: false };
+
+const api = {
+  async _r(path, o = {}) {
+    const r = await fetch(path, o);
+    if (!r.ok) { const t = await r.text().catch(() => r.statusText); throw new Error(t); }
+    return r;
+  },
+  json: (p, o) => api._r(p, o).then(r => r.json()),
+  packages: () => api.json('/packages'),
+  pkg: id => api.json(`/packages/${id}`),
+  search: q => api.json(`/search?expr=${encodeURIComponent(q)}`),
+  del: id => api.json(`/packages/${id}`, { method: 'DELETE' }),
+  async recover(id) {
+    const r = await api._r(`/recover/${id}`);
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const name = cd.match(/filename="?([^"]+)"?/)?.[1] || `${id}.tar`;
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+    a.click(); URL.revokeObjectURL(a.href);
+  },
+  upload(file, alg, onProg) {
+    return new Promise((res, rej) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      const x = new XMLHttpRequest();
+      x.upload.onprogress = e => e.lengthComputable && onProg(e.loaded / e.total);
+      x.onload = () => x.status < 300 ? res(JSON.parse(x.responseText)) : rej(new Error(x.responseText || x.statusText));
+      x.onerror = () => rej(new Error('Erro de rede'));
+      x.open('POST', `/store${alg ? '?algorithm=' + alg : ''}`);
+      x.send(fd);
+    });
+  }
+};
+
+function nav(v) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('on'));
+  document.getElementById('view-' + v)?.classList.add('on');
+  document.querySelector(`[data-v="${v}"]`)?.classList.add('on');
+  if (v === 'dashboard') loadDash();
+  if (v === 'packages') loadPackages();
+}
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => nav(b.dataset.v)));
+
+async function checkApi() {
+  const dot = document.getElementById('api-dot');
+  const txt = document.getElementById('api-txt');
+  try {
+    await fetch('/packages', { signal: AbortSignal.timeout(3000) });
+    dot.className = 'dot ok'; txt.textContent = 'API online';
+  } catch {
+    dot.className = 'dot err'; txt.textContent = 'API offline';
+  }
+}
+
+async function loadDash() {
+  try {
+    const pkgs = await api.packages();
+    S.pkgs = pkgs;
+    const totalF = pkgs.reduce((s, p) => s + p.file_count, 0);
+    const backs = new Set(pkgs.flatMap(p => p.locations.map(l => l.split('://')[0])));
+    const algs  = new Set(pkgs.map(p => p.algorithm));
+    count('s-pkgs', pkgs.length);
+    count('s-files', totalF);
+    count('s-backs', backs.size);
+    count('s-algs', algs.size);
+    const el = document.getElementById('recent');
+    const recent = [...pkgs].reverse().slice(0, 8);
+    if (!recent.length) {
+      el.innerHTML = `<div class="empty"><span class="empty-ico">📭</span><p>Nenhum pacote ainda</p></div>`;
+      return;
+    }
+    el.innerHTML = recent.map(p => `
+      <div class="recent-row" onclick="nav('packages')">
+        <span class="abadge ${p.algorithm}">${p.algorithm}</span>
+        <span class="mono">${p.package_id}</span>
+        <span style="font-size:11px;color:var(--muted);flex-shrink:0">${p.file_count} arq.</span>
+        <span style="font-size:11px;color:var(--muted2);flex-shrink:0">${ago(p.created_at)}</span>
+        <span style="flex-shrink:0">${btags(p.locations)}</span>
+      </div>`).join('');
+  } catch (e) { toast('Erro ao carregar dashboard: ' + e.message, 'err'); }
+}
+
+function count(id, target) {
+  const el = document.getElementById(id); if (!el) return;
+  const start = +el.textContent || 0, dur = 600, t0 = performance.now();
+  const tick = now => {
+    const p = Math.min((now - t0) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(start + (target - start) * e);
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+async function loadPackages() {
+  const grid = document.getElementById('pgrid');
+  const cnt  = document.getElementById('pkg-count');
+  grid.innerHTML = [0,1,2].map(() => `<div class="sk" style="height:175px;border-radius:12px"></div>`).join('');
+  try {
+    const pkgs = await api.packages();
+    S.pkgs = pkgs;
+    cnt.textContent = `${pkgs.length} pacote${pkgs.length !== 1 ? 's' : ''}`;
+    if (!pkgs.length) {
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><span class="empty-ico">📦</span><h3>Nenhum pacote armazenado</h3><p>Faça seu primeiro upload na aba Store</p><button class="btn btn-p" onclick="nav('store')" style="margin:0 auto">Ir para Store →</button></div>`;
+      return;
+    }
+    grid.innerHTML = pkgs.map((p, i) => pkgHtml(p, i)).join('');
+  } catch (e) {
+    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--err);padding:40px;text-align:center">${e.message}</div>`;
+  }
+}
+
+function pkgHtml(p, i) {
+  return `
+<article class="pkg" data-a="${p.algorithm}" style="animation-delay:${Math.min(i*45,250)}ms">
+  <div class="pkg-bar"></div>
+  <div class="pkg-body">
+    <div class="pkg-top">
+      <span class="abadge ${p.algorithm}">${p.algorithm}</span>
+      <time class="pkg-date">${ago(p.created_at)}</time>
+    </div>
+    <div class="pkg-id">${p.package_id}</div>
+    <div class="pkg-meta">
+      <span class="fc">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        ${p.file_count} arquivos
+      </span>
+      <div class="btags">${btags(p.locations)}</div>
+    </div>
+  </div>
+  <div class="files" id="fl-${p.package_id}">
+    <div class="files-in" id="fli-${p.package_id}"></div>
+  </div>
+  <div class="pkg-acts">
+    <button class="btn btn-g" onclick="toggleFiles('${p.package_id}')">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Arquivos
+    </button>
+    <button class="btn btn-g" onclick="recoverPkg('${p.package_id}')">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Recover
+    </button>
+    <button class="btn btn-d" id="del-${p.package_id}" onclick="delPkg('${p.package_id}')">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+      Delete
+    </button>
+  </div>
+</article>`;
+}
+
+async function toggleFiles(id) {
+  const box = document.getElementById('fl-' + id);
+  const inner = document.getElementById('fli-' + id);
+  if (box.classList.toggle('on') && !box.dataset.loaded) {
+    inner.innerHTML = `<div class="sk" style="height:16px;margin-bottom:5px"></div><div class="sk" style="height:16px;margin-bottom:5px"></div><div class="sk" style="height:16px"></div>`;
+    try {
+      const pkg = await api.pkg(id);
+      box.dataset.loaded = '1';
+      inner.innerHTML = pkg.files.map(f => `<div class="fi" title="${f}">${f}</div>`).join('');
+    } catch (e) {
+      inner.innerHTML = `<div style="color:var(--err);font-size:12px">${e.message}</div>`;
+    }
+  }
+}
+
+async function delPkg(id) {
+  if (!confirm(`Deletar pacote ${id}?\n\nO arquivo será removido de todos os backends.`)) return;
+  const btn = document.getElementById('del-' + id);
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="10" height="10" class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+  try {
+    await api.del(id);
+    document.querySelectorAll('.pkg').forEach(el => {
+      if (el.querySelector(`#del-${id}`)) {
+        el.animate([{opacity:1,transform:'scale(1)'},{opacity:0,transform:'scale(.95)'}],{duration:180}).onfinish = () => el.remove();
+      }
+    });
+    toast(`Pacote ${id} deletado`, 'ok');
+    loadDash();
+    const c = document.getElementById('pkg-count');
+    const n = Math.max(0, (parseInt(c.textContent) || 1) - 1);
+    c.textContent = `${n} pacote${n !== 1 ? 's' : ''}`;
+  } catch (e) {
+    toast('Erro ao deletar: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Delete';
+  }
+}
+
+async function recoverPkg(id) {
+  toast(`Iniciando download de ${id}…`, 'info');
+  try { await api.recover(id); toast('Download iniciado!', 'ok'); }
+  catch (e) { toast('Erro: ' + e.message, 'err'); }
+}
+
+const drop = document.getElementById('drop');
+const finput = document.getElementById('file-input');
+
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('over');
+  const f = e.dataTransfer.files[0]; if (f) upload(f);
+});
+drop.addEventListener('click', e => {
+  if (S.busy) return;
+  if (e.target.closest('#drop-default') || e.target === drop) finput.click();
+});
+finput.addEventListener('change', () => { if (finput.files[0]) upload(finput.files[0]); });
+
+document.querySelectorAll('.apill').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.apill').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); S.alg = b.dataset.a;
+  });
+});
+
+async function upload(file) {
+  if (S.busy) return; S.busy = true;
+  document.getElementById('drop-default').style.display = 'none';
+  document.getElementById('up-result').classList.remove('on');
+  document.getElementById('prog').classList.add('on');
+  document.getElementById('prog-lbl').textContent = `Enviando ${file.name}…`;
+  setRing(0);
+  try {
+    const r = await api.upload(file, S.alg, p => setRing(p));
+    document.getElementById('prog').classList.remove('on');
+    drop.style.display = 'none';
+    document.getElementById('res-id').textContent = `Package ID: ${r.package_id}`;
+    document.getElementById('res-files').textContent = `${r.file_count} arquivo(s) indexado(s)`;
+    document.getElementById('res-locs').innerHTML = r.locations.map(l =>
+      `<span class="bt ${bcls(l)}">${l}</span>`).join('');
+    document.getElementById('up-result').classList.add('on');
+    toast(`Backup concluído! Package ${r.package_id}`, 'ok');
+    loadDash();
+  } catch (e) {
+    toast('Erro no upload: ' + e.message, 'err');
+    resetStore();
+  }
+  S.busy = false;
+}
+
+function setRing(p) {
+  const c = 295;
+  document.getElementById('ring-fill').style.strokeDashoffset = c * (1 - p);
+  document.getElementById('ring-pct').textContent = Math.round(p * 100) + '%';
+}
+
+function resetStore() {
+  S.busy = false;
+  drop.style.display = '';
+  document.getElementById('drop-default').style.display = '';
+  document.getElementById('prog').classList.remove('on');
+  document.getElementById('up-result').classList.remove('on');
+  setRing(0); finput.value = '';
+}
+
+let stimer;
+document.getElementById('search-in').addEventListener('input', e => {
+  clearTimeout(stimer);
+  const q = e.target.value.trim();
+  if (!q) { document.getElementById('search-out').innerHTML = ''; return; }
+  stimer = setTimeout(() => doSearch(q), 320);
+});
+
+async function doSearch(q) {
+  const out = document.getElementById('search-out');
+  out.innerHTML = `<div class="sk" style="height:58px;border-radius:12px"></div>`;
+  try {
+    const rs = await api.search(q);
+    if (!rs.length) {
+      out.innerHTML = `<div class="empty" style="padding:60px 0"><span class="empty-ico">🔍</span><h3>Sem resultados</h3><p>Nenhum arquivo encontrado para "<strong>${q}</strong>"</p></div>`;
+      return;
+    }
+    out.innerHTML = rs.map(r => {
+      const a = S.pkgs.find(p => p.package_id === r.package_id)?.algorithm || '';
+      return `
+<div class="sr-card">
+  <div class="sr-head" onclick="this.nextElementSibling.hidden = !this.nextElementSibling.hidden">
+    ${a ? `<span class="abadge ${a}">${a}</span>` : ''}
+    <span class="mono" style="flex:1">${r.package_id}</span>
+    <span class="cbadge">${r.matches.length} match${r.matches.length !== 1 ? 'es' : ''}</span>
+    <span style="font-size:11px;color:var(--muted);margin-left:8px">${ago(r.created_at)}</span>
+  </div>
+  <div class="sr-matches">
+    ${r.matches.map(m => `<div class="mf" title="${m}">${hl(m, q)}</div>`).join('')}
+  </div>
+</div>`;
+    }).join('');
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--err);padding:20px">${e.message}</div>`;
+  }
+}
+
+function hl(txt, q) {
+  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return txt.replace(new RegExp(esc, 'gi'), m => `<mark>${m}</mark>`);
+}
+
+function btags(locs) {
+  return locs.map(l => `<span class="bt ${bcls(l)}">${blbl(l)}</span>`).join('');
+}
+function bcls(l) {
+  if (l.startsWith('s3://'))    return 's3';
+  if (l.startsWith('gs://'))    return 'gcs';
+  if (l.startsWith('azure://')) return 'azure';
+  return 'local';
+}
+function blbl(l) {
+  if (l.startsWith('s3://'))    return 'S3';
+  if (l.startsWith('gs://'))    return 'GCS';
+  if (l.startsWith('azure://')) return 'Azure';
+  return 'Local';
+}
+function ago(iso) {
+  const d = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(d / 6e4), h = Math.floor(m / 60), dy = Math.floor(h / 24);
+  if (dy > 0) return `${dy}d atrás`;
+  if (h  > 0) return `${h}h atrás`;
+  if (m  > 0) return `${m}min atrás`;
+  return 'agora';
+}
+
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = `<span>${type === 'ok' ? '✓' : type === 'err' ? '✕' : 'ℹ'}</span><span>${msg}</span>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 4200);
+}
+
+checkApi();
+setInterval(checkApi, 30000);
+loadDash();
+</script>
+</body>
+</html>
