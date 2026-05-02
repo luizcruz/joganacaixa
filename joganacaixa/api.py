@@ -3,7 +3,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .compression import Algorithm, compress, extract
@@ -17,6 +18,11 @@ app = FastAPI(
 )
 
 _config = load_config()
+
+# Serve the web UI from /ui (html=True serves index.html for directory requests)
+_frontend = Path(__file__).parent.parent / "frontend"
+if _frontend.exists():
+    app.mount("/ui", StaticFiles(directory=str(_frontend), html=True), name="ui")
 
 
 # --- Response models ---
@@ -74,6 +80,11 @@ def _get_manifest(package_id: str) -> Manifest:
 
 
 # --- Endpoints ---
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse("/ui")
+
 
 @app.get("/packages", response_model=list[PackageSummary])
 def list_packages() -> list[PackageSummary]:
@@ -141,12 +152,13 @@ async def store(
             except Exception:
                 pass
 
-    archive.unlink(missing_ok=True)
-
     if not locations:
+        archive.unlink(missing_ok=True)
         raise HTTPException(status_code=502, detail="Upload failed on all backends")
 
+    # Build manifest before deleting the archive (list_contents reads the file)
     manifest = build_manifest(package_id, archive, alg, locations)
+    archive.unlink(missing_ok=True)
     manifest.save(_manifest_dir())
 
     return StoreResult(package_id=package_id, locations=locations, file_count=len(manifest.files))
