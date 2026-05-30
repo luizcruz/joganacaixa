@@ -13,25 +13,36 @@ class Manifest:
         files: list[str],
         locations: list[str],
         created_at: str | None = None,
+        checksum: str | None = None,
     ) -> None:
         self.package_id = package_id
         self.algorithm = algorithm
         self.files = files
         self.locations = locations
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
+        self.checksum = checksum
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "package_id": self.package_id,
             "algorithm": self.algorithm,
             "files": self.files,
             "locations": self.locations,
             "created_at": self.created_at,
+            "checksum": self.checksum,
         }
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "Manifest":
-        return cls(**data)
+        return cls(
+            package_id=data["package_id"],
+            algorithm=data["algorithm"],
+            files=data["files"],
+            locations=data["locations"],
+            created_at=data.get("created_at"),
+            checksum=data.get("checksum"),
+        )
 
     def save(self, manifest_dir: Path) -> Path:
         manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -71,10 +82,12 @@ def build_manifest(
     archive: Path,
     algorithm: Algorithm,
     locations: list[str],
+    checksum: str | None = None,
 ) -> Manifest:
     return Manifest(
         package_id=package_id,
         algorithm=algorithm.value,
         files=list_contents(archive),
         locations=locations,
+        checksum=checksum,
     )

@@ -16,6 +16,21 @@ class LocalBackend(StorageBackend):
         shutil.copy2(local_path, dest)
         return f"local://{dest}"
 
+    def upload_stream(self, fileobj, key: str) -> str:
+        dest = self.root / key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "wb") as f:
+            while True:
+                chunk = fileobj.read(65536)
+                if not chunk:
+                    break
+                f.write(chunk)
+        return f"local://{dest}"
+
+    def download_stream(self, key: str):
+        path = self.root / key
+        return open(path, "rb")
+
     def download(self, key: str, local_path: Path) -> None:
         src = self.root / key
         local_path.parent.mkdir(parents=True, exist_ok=True)

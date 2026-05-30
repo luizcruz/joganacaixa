@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from .base import StorageBackend
+from .base import StorageBackend, _IterReader
 
 
 class AzureBackend(StorageBackend):
@@ -29,6 +29,16 @@ class AzureBackend(StorageBackend):
         with open(local_path, "rb") as f:
             blob.upload_blob(f, overwrite=True)
         return f"azure://{self.container}/{self._key(key)}"
+
+    def upload_stream(self, fileobj, key: str) -> str:
+        blob_client = self._client.get_blob_client(container=self.container, blob=self._key(key))
+        blob_client.upload_blob(fileobj, overwrite=True)
+        return f"azure://{self.container}/{self._key(key)}"
+
+    def download_stream(self, key: str):
+        blob_client = self._client.get_blob_client(container=self.container, blob=self._key(key))
+        downloader = blob_client.download_blob()
+        return _IterReader(downloader.chunks())
 
     def download(self, key: str, local_path: Path) -> None:
         local_path.parent.mkdir(parents=True, exist_ok=True)

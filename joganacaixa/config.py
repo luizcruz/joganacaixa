@@ -9,11 +9,13 @@ from .storage.base import StorageBackend
 _DEFAULT_CONFIG: dict = {
     "compression": {
         "algorithm": "zst",
+        "level": 3,
         "exclude": [".git", ".escorregador", ".etiqueta", "__pycache__", "*.pyc", "node_modules"],
     },
     "storage": [],
     "staging_dir": ".escorregador",
     "manifest_dir": ".etiqueta",
+    "retries": 3,
 }
 
 _CONFIG_CANDIDATES = [
@@ -90,3 +92,11 @@ def get_algorithm(config: dict) -> Algorithm:
 
 def get_exclude_patterns(config: dict) -> list[str]:
     return config.get("compression", {}).get("exclude", [])
+
+
+def get_zstd_level(config: dict) -> int:
+    return config.get("compression", {}).get("level", 3)
+
+
+def get_retries(config: dict) -> int:
+    return config.get("retries", 3)
