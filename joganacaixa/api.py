@@ -7,9 +7,10 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .compression import Algorithm, compress, extract
-from .config import build_backends, get_algorithm, get_exclude_patterns, load_config
+from .compression import Algorithm, compress, extract, extract_from_stream, sha256_file
+from .config import build_backends, get_algorithm, get_encryption_key, get_exclude_patterns, get_retries, get_zstd_level, load_config
 from .manifest import Manifest, build_manifest
+from .reliability import retry
 
 app = FastAPI(
     title="Joga na Caixa",
@@ -61,6 +62,13 @@ class DeleteResult(BaseModel):
 
 
 # --- Helpers ---
+
+def _try_upload(backend, path: Path, key: str) -> None:
+    try:
+        backend.upload(path, key)
+    except Exception:
+        pass
+
 
 def _manifest_dir() -> Path:
     return Path(_config.get("manifest_dir", ".etiqueta"))
@@ -127,6 +135,7 @@ def search(expr: str = Query(..., description="Substring to match against archiv
 async def store(
     file: UploadFile = File(...),
     algorithm: str | None = Query(default=None, description="gz | bz2 | xz | zst"),
+    encrypt: bool | None = Query(default=None, description="Override encryption (true/false)"),
 ) -> StoreResult:
     """Upload a file, compress it, and store it across all configured backends in parallel."""
     backends = build_backends(_config)
@@ -136,16 +145,37 @@ async def store(
     alg = Algorithm(algorithm) if algorithm else get_algorithm(_config)
     staging = _staging_dir()
     package_id = str(int(time.time()))
+    attempts = get_retries(_config)
+    level = get_zstd_level(_config)
 
     tmp = staging / (file.filename or package_id)
-    tmp.write_bytes(await file.read())
+    with open(tmp, "wb") as f:
+        while True:
+            chunk = await file.read(65536)
+            if not chunk:
+                break
+            f.write(chunk)
 
-    archive = compress(tmp, staging / package_id, alg, get_exclude_patterns(_config))
+    archive = compress(tmp, staging / package_id, alg, get_exclude_patterns(_config), level=level)
     tmp.unlink(missing_ok=True)
+    checksum = sha256_file(archive)
+
+    # encrypt=False explicitly disables; encrypt=True or None uses config default
+    enc_key = None if encrypt is False else get_encryption_key(_config)
+    if enc_key:
+        from .encryption import encrypt_file
+        enc_archive = Path(str(archive) + ".enc")
+        encrypt_file(archive, enc_archive, enc_key)
+        archive.unlink()
+        archive = enc_archive
+    encrypted = enc_key is not None
 
     locations: list[str] = []
     with ThreadPoolExecutor(max_workers=len(backends)) as pool:
-        futures = {pool.submit(b.upload, archive, archive.name): b for b in backends}
+        futures = {
+            pool.submit(retry, lambda b=b: b.upload(archive, archive.name), attempts): b
+            for b in backends
+        }
         for future in as_completed(futures):
             try:
                 locations.append(future.result())
@@ -157,9 +187,15 @@ async def store(
         raise HTTPException(status_code=502, detail="Upload failed on all backends")
 
     # Build manifest before deleting the archive (list_contents reads the file)
-    manifest = build_manifest(package_id, archive, alg, locations)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
     archive.unlink(missing_ok=True)
-    manifest.save(_manifest_dir())
+    manifest_path = manifest.save(_manifest_dir())
+
+    # Back up manifest JSON to all backends
+    manifest_key = f"{package_id}.manifest.json"
+    with ThreadPoolExecutor(max_workers=len(backends)) as pool:
+        for b in backends:
+            pool.submit(_try_upload, b, manifest_path, manifest_key)
 
     return StoreResult(package_id=package_id, locations=locations, file_count=len(manifest.files))
 
@@ -178,18 +214,46 @@ def recover(
         raise HTTPException(status_code=404, detail="No matching backend")
 
     alg = Algorithm(manifest.algorithm)
-    key = f"{package_id}.tar.{alg.value}"
+    key = f"{package_id}.tar.{alg.value}" + (".enc" if manifest.encrypted else "")
     archive = _staging_dir() / key
 
-    for b in chosen:
+    import threading
+
+    result: list = []
+    done = threading.Event()
+
+    def _attempt(b):
         try:
             b.download(key, archive)
-            background_tasks.add_task(archive.unlink, missing_ok=True)
-            return FileResponse(str(archive), filename=key, media_type="application/octet-stream")
+            if not done.is_set():
+                done.set()
+                result.append(True)
         except Exception:
-            continue
+            pass
 
-    raise HTTPException(status_code=502, detail="Download failed from all backends")
+    threads = [threading.Thread(target=_attempt, args=(b,), daemon=True) for b in chosen]
+    for t in threads:
+        t.start()
+    done.wait(timeout=30)
+
+    if not result:
+        raise HTTPException(status_code=502, detail="Download failed from all backends")
+
+    if manifest.encrypted:
+        enc_key = get_encryption_key(_config)
+        if not enc_key:
+            archive.unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail="Package is encrypted but no key configured")
+        from .encryption import decrypt_file
+        plain_key = f"{package_id}.tar.{alg.value}"
+        plain_archive = _staging_dir() / plain_key
+        decrypt_file(archive, plain_archive, enc_key)
+        archive.unlink(missing_ok=True)
+        background_tasks.add_task(plain_archive.unlink, missing_ok=True)
+        return FileResponse(str(plain_archive), filename=plain_key, media_type="application/octet-stream")
+
+    background_tasks.add_task(archive.unlink, missing_ok=True)
+    return FileResponse(str(archive), filename=key, media_type="application/octet-stream")
 
 
 @app.delete("/packages/{package_id}", response_model=DeleteResult)

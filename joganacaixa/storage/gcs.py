@@ -2,12 +2,11 @@ from pathlib import Path
 
 from .base import StorageBackend
 
-# Maps friendly names to GCS storage class identifiers
 _STORAGE_CLASSES = {
     "standard": "STANDARD",
     "nearline": "NEARLINE",
     "coldline": "COLDLINE",
-    "archive": "ARCHIVE",  # cheapest, highest retrieval cost — equivalent to Glacier
+    "archive": "ARCHIVE",
 }
 
 
@@ -49,6 +48,16 @@ class GCSBackend(StorageBackend):
         blob.storage_class = self.storage_class
         blob.upload_from_filename(str(local_path))
         return f"gs://{self.bucket_name}/{self._key(key)}"
+
+    def upload_stream(self, fileobj, key: str) -> str:
+        blob = self._bucket.blob(self._key(key))
+        blob.storage_class = self.storage_class
+        blob.upload_from_file(fileobj)
+        return f"gs://{self.bucket_name}/{self._key(key)}"
+
+    def download_stream(self, key: str):
+        blob = self._bucket.blob(self._key(key))
+        return blob.open(mode="rb")
 
     def download(self, key: str, local_path: Path) -> None:
         local_path.parent.mkdir(parents=True, exist_ok=True)

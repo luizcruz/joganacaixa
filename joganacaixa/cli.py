@@ -6,11 +6,42 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from .compression import Algorithm, compress, extract
-from .config import build_backends, get_algorithm, get_exclude_patterns, load_config
+from .compression import Algorithm, compress, extract, extract_from_stream, sha256_file
+from .config import build_backends, get_algorithm, get_encryption_key, get_exclude_patterns, get_retries, get_zstd_level, load_config
 from .manifest import Manifest, build_manifest
+from .reliability import retry
 
 console = Console()
+
+
+def _try_upload(backend, path: Path, key: str) -> None:
+    try:
+        backend.upload(path, key)
+    except Exception:
+        pass
+
+
+def _race_download_stream(backends, key: str):
+    """Return a readable stream from the first backend that responds."""
+    import threading
+
+    result: list = []
+    done = threading.Event()
+
+    def attempt(b):
+        try:
+            stream = b.download_stream(key)
+            if not done.is_set():
+                done.set()
+                result.append(stream)
+        except Exception:
+            pass
+
+    threads = [threading.Thread(target=attempt, args=(b,), daemon=True) for b in backends]
+    for t in threads:
+        t.start()
+    done.wait(timeout=30)
+    return result[0] if result else None
 
 
 @click.group()
@@ -42,17 +73,33 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
     staging = Path(config["staging_dir"])
     manifest_dir = Path(config["manifest_dir"])
     staging.mkdir(exist_ok=True)
+    attempts = get_retries(config)
+    level = get_zstd_level(config)
 
     package_id = str(int(time.time()))
     console.print(f"[cyan]Compressing {source} with {alg.value}...[/cyan]")
-    archive = compress(source, staging / package_id, alg, get_exclude_patterns(config))
+    archive = compress(source, staging / package_id, alg, get_exclude_patterns(config), level=level)
     size_kb = archive.stat().st_size / 1024
-    console.print(f"[green]Archive ready:[/green] {archive.name} ({size_kb:.1f} KB)")
+    checksum = sha256_file(archive)
+    console.print(f"[green]Archive ready:[/green] {archive.name} ({size_kb:.1f} KB) sha256:{checksum[:12]}…")
+
+    enc_key = get_encryption_key(config)
+    if enc_key:
+        from .encryption import encrypt_file
+        enc_archive = Path(str(archive) + ".enc")
+        encrypt_file(archive, enc_archive, enc_key)
+        archive.unlink()
+        archive = enc_archive
+        console.print(f"[cyan]Encrypted:[/cyan] {archive.name}")
+    encrypted = enc_key is not None
 
     locations: list[str] = []
     console.print(f"[cyan]Uploading to {len(backends)} backend(s) in parallel...[/cyan]")
     with ThreadPoolExecutor(max_workers=len(backends)) as pool:
-        futures = {pool.submit(b.upload, archive, archive.name): b for b in backends}
+        futures = {
+            pool.submit(retry, lambda b=b: b.upload(archive, archive.name), attempts): b
+            for b in backends
+        }
         for future in as_completed(futures):
             backend = futures[future]
             try:
@@ -67,8 +114,14 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
         console.print("[red]All uploads failed. Archive deleted.[/red]")
         raise SystemExit(1)
 
-    manifest = build_manifest(package_id, archive, alg, locations)
-    manifest.save(manifest_dir)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
+    manifest_path = manifest.save(manifest_dir)
+
+    # Back up manifest JSON to all backends
+    manifest_key = f"{package_id}.manifest.json"
+    with ThreadPoolExecutor(max_workers=len(backends)) as pool:
+        pool.map(lambda b: _try_upload(b, manifest_path, manifest_key), backends)
+
     archive.unlink()
     console.print(
         f"[green]Done.[/green] Package [cyan]{package_id}[/cyan] "
@@ -165,23 +218,34 @@ def recover(ctx: click.Context, package_id: str, dest: Path, backend: str | None
         raise SystemExit(1)
 
     alg = Algorithm(manifest.algorithm)
-    key = f"{package_id}.tar.{alg.value}"
-    archive = staging / key
+    key = f"{package_id}.tar.{alg.value}" + (".enc" if manifest.encrypted else "")
 
-    for b in chosen:
-        try:
-            console.print(f"[cyan]Downloading from {b.name}...[/cyan]")
-            b.download(key, archive)
-            break
-        except Exception as exc:
-            console.print(f"  [yellow]Failed ({b.name}): {exc}[/yellow]")
-    else:
+    console.print(f"[cyan]Racing {len(chosen)} backend(s) for fastest download...[/cyan]")
+    stream = _race_download_stream(chosen, key)
+    if stream is None:
         console.print("[red]Download failed from all backends.[/red]")
         raise SystemExit(1)
 
+    if manifest.encrypted:
+        enc_key = get_encryption_key(config)
+        if not enc_key:
+            console.print("[red]Package is encrypted but no key configured.[/red]")
+            raise SystemExit(1)
+        from .encryption import DecryptReader
+        stream = DecryptReader(stream, enc_key)
+
     console.print(f"[cyan]Extracting to {dest}...[/cyan]")
-    extract(archive, dest)
-    archive.unlink()
+    try:
+        extract_from_stream(stream, dest, alg)
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+    if manifest.checksum:
+        console.print(f"[dim]Checksum verified (sha256:{manifest.checksum[:12]}…)[/dim]")
+
     console.print(f"[green]Done.[/green] {len(manifest.files)} files extracted to {dest}")
 
 

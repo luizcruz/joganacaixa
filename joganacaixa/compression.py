@@ -1,4 +1,5 @@
 import fnmatch
+import hashlib
 import tarfile
 from enum import Enum
 from pathlib import Path
@@ -16,6 +17,7 @@ def compress(
     dest: Path,
     algorithm: Algorithm = Algorithm.ZSTD,
     exclude_patterns: list[str] | None = None,
+    level: int = 3,
 ) -> Path:
     """Compress source into a .tar.<alg> archive, returning the archive path."""
     exclude_patterns = exclude_patterns or []
@@ -26,7 +28,7 @@ def compress(
     filter_fn = _make_exclude_filter(exclude_patterns) if exclude_patterns else None
 
     if algorithm == Algorithm.ZSTD:
-        _compress_zstd(source, dest, filter_fn)
+        _compress_zstd(source, dest, filter_fn, level=level)
     else:
         with tarfile.open(dest, f"w:{algorithm.value}") as tar:
             tar.add(source, arcname=".", filter=filter_fn)
@@ -34,14 +36,61 @@ def compress(
     return dest
 
 
-def _compress_zstd(source: Path, dest: Path, filter_fn) -> None:
+def _compress_zstd(source: Path, dest: Path, filter_fn, level: int = 3) -> None:
     import zstandard as zstd
 
-    cctx = zstd.ZstdCompressor(level=10, threads=-1)
+    cctx = zstd.ZstdCompressor(level=level, threads=-1)
     with open(dest, "wb") as f:
         with cctx.stream_writer(f, closefd=False) as compressor:
             with tarfile.open(fileobj=compressor, mode="w|") as tar:
                 tar.add(source, arcname=".", filter=filter_fn)
+
+
+def sha256_file(path: Path) -> str:
+    """Compute the SHA-256 hex digest of a file, reading in 64 KB chunks."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def extract_from_stream(stream, dest: Path, algorithm: Algorithm) -> None:
+    """Extract an archive from a file-like stream without writing a temp file."""
+    dest.mkdir(parents=True, exist_ok=True)
+    if algorithm == Algorithm.ZSTD:
+        import zstandard as zstd
+
+        dctx = zstd.ZstdDecompressor()
+        with dctx.stream_reader(stream) as reader:
+            with tarfile.open(fileobj=reader, mode="r|") as tar:
+                tar.extractall(dest)
+    elif algorithm == Algorithm.GZIP:
+        import gzip
+        import io
+
+        with gzip.GzipFile(fileobj=stream) as gz:
+            with tarfile.open(fileobj=gz, mode="r|") as tar:
+                tar.extractall(dest)
+    elif algorithm == Algorithm.BZIP2:
+        import bz2
+        import io
+
+        with bz2.BZ2File(stream) as bz:
+            with tarfile.open(fileobj=bz, mode="r|") as tar:
+                tar.extractall(dest)
+    elif algorithm == Algorithm.XZ:
+        import lzma
+
+        with lzma.open(stream) as xz:
+            with tarfile.open(fileobj=xz, mode="r|") as tar:
+                tar.extractall(dest)
+    else:
+        with tarfile.open(fileobj=stream, mode="r|") as tar:
+            tar.extractall(dest)
 
 
 def list_contents(archive: Path) -> list[str]:
