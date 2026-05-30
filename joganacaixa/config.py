@@ -17,7 +17,7 @@ _DEFAULT_CONFIG: dict = {
     "manifest_dir": ".etiqueta",
     "retries": 3,
     "encryption": {
-        "enabled": False,
+        "enabled": True,
         "key_file": "~/.joganacaixa.key",
     },
 }
@@ -109,7 +109,7 @@ def get_retries(config: dict) -> int:
 def get_encryption_key(config: dict) -> bytes | None:
     """Return the AES-256 encryption key, or None if encryption is disabled."""
     enc_cfg = config.get("encryption", {})
-    if not enc_cfg.get("enabled", False):
+    if not enc_cfg.get("enabled", True):
         return None
 
     passphrase_env = enc_cfg.get("passphrase_env")

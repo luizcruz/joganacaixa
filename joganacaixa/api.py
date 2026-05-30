@@ -135,6 +135,7 @@ def search(expr: str = Query(..., description="Substring to match against archiv
 async def store(
     file: UploadFile = File(...),
     algorithm: str | None = Query(default=None, description="gz | bz2 | xz | zst"),
+    encrypt: bool | None = Query(default=None, description="Override encryption (true/false)"),
 ) -> StoreResult:
     """Upload a file, compress it, and store it across all configured backends in parallel."""
     backends = build_backends(_config)
@@ -159,7 +160,8 @@ async def store(
     tmp.unlink(missing_ok=True)
     checksum = sha256_file(archive)
 
-    enc_key = get_encryption_key(_config)
+    # encrypt=False explicitly disables; encrypt=True or None uses config default
+    enc_key = None if encrypt is False else get_encryption_key(_config)
     if enc_key:
         from .encryption import encrypt_file
         enc_archive = Path(str(archive) + ".enc")
