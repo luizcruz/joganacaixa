@@ -16,6 +16,7 @@ dependencies = [
     "zstandard>=0.22",
     "python-multipart>=0.0.9",
     "aiofiles>=23.2",
+    "cryptography>=42.0",
     # Cloud SDKs — install only the backends you use
     "boto3>=1.34",
     "google-cloud-storage>=2.16",

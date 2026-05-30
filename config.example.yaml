@@ -37,3 +37,9 @@ storage:
 
 staging_dir: .escorregador
 manifest_dir: .etiqueta
+
+encryption:
+  enabled: true
+  key_file: ~/.joganacaixa.key  # auto-generated on first use (chmod 600)
+  # Alternative: derive key from passphrase
+  # passphrase_env: JOGANACAIXA_PASSPHRASE

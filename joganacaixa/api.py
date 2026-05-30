@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .compression import Algorithm, compress, extract, extract_from_stream, sha256_file
-from .config import build_backends, get_algorithm, get_exclude_patterns, get_retries, get_zstd_level, load_config
+from .config import build_backends, get_algorithm, get_encryption_key, get_exclude_patterns, get_retries, get_zstd_level, load_config
 from .manifest import Manifest, build_manifest
 from .reliability import retry
 
@@ -159,6 +159,15 @@ async def store(
     tmp.unlink(missing_ok=True)
     checksum = sha256_file(archive)
 
+    enc_key = get_encryption_key(_config)
+    if enc_key:
+        from .encryption import encrypt_file
+        enc_archive = Path(str(archive) + ".enc")
+        encrypt_file(archive, enc_archive, enc_key)
+        archive.unlink()
+        archive = enc_archive
+    encrypted = enc_key is not None
+
     locations: list[str] = []
     with ThreadPoolExecutor(max_workers=len(backends)) as pool:
         futures = {
@@ -176,7 +185,7 @@ async def store(
         raise HTTPException(status_code=502, detail="Upload failed on all backends")
 
     # Build manifest before deleting the archive (list_contents reads the file)
-    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
     archive.unlink(missing_ok=True)
     manifest_path = manifest.save(_manifest_dir())
 
@@ -203,7 +212,7 @@ def recover(
         raise HTTPException(status_code=404, detail="No matching backend")
 
     alg = Algorithm(manifest.algorithm)
-    key = f"{package_id}.tar.{alg.value}"
+    key = f"{package_id}.tar.{alg.value}" + (".enc" if manifest.encrypted else "")
     archive = _staging_dir() / key
 
     import threading
@@ -227,6 +236,19 @@ def recover(
 
     if not result:
         raise HTTPException(status_code=502, detail="Download failed from all backends")
+
+    if manifest.encrypted:
+        enc_key = get_encryption_key(_config)
+        if not enc_key:
+            archive.unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail="Package is encrypted but no key configured")
+        from .encryption import decrypt_file
+        plain_key = f"{package_id}.tar.{alg.value}"
+        plain_archive = _staging_dir() / plain_key
+        decrypt_file(archive, plain_archive, enc_key)
+        archive.unlink(missing_ok=True)
+        background_tasks.add_task(plain_archive.unlink, missing_ok=True)
+        return FileResponse(str(plain_archive), filename=plain_key, media_type="application/octet-stream")
 
     background_tasks.add_task(archive.unlink, missing_ok=True)
     return FileResponse(str(archive), filename=key, media_type="application/octet-stream")

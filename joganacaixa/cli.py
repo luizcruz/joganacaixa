@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .compression import Algorithm, compress, extract, extract_from_stream, sha256_file
-from .config import build_backends, get_algorithm, get_exclude_patterns, get_retries, get_zstd_level, load_config
+from .config import build_backends, get_algorithm, get_encryption_key, get_exclude_patterns, get_retries, get_zstd_level, load_config
 from .manifest import Manifest, build_manifest
 from .reliability import retry
 
@@ -83,6 +83,16 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
     checksum = sha256_file(archive)
     console.print(f"[green]Archive ready:[/green] {archive.name} ({size_kb:.1f} KB) sha256:{checksum[:12]}…")
 
+    enc_key = get_encryption_key(config)
+    if enc_key:
+        from .encryption import encrypt_file
+        enc_archive = Path(str(archive) + ".enc")
+        encrypt_file(archive, enc_archive, enc_key)
+        archive.unlink()
+        archive = enc_archive
+        console.print(f"[cyan]Encrypted:[/cyan] {archive.name}")
+    encrypted = enc_key is not None
+
     locations: list[str] = []
     console.print(f"[cyan]Uploading to {len(backends)} backend(s) in parallel...[/cyan]")
     with ThreadPoolExecutor(max_workers=len(backends)) as pool:
@@ -104,7 +114,7 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
         console.print("[red]All uploads failed. Archive deleted.[/red]")
         raise SystemExit(1)
 
-    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
     manifest_path = manifest.save(manifest_dir)
 
     # Back up manifest JSON to all backends
@@ -208,13 +218,21 @@ def recover(ctx: click.Context, package_id: str, dest: Path, backend: str | None
         raise SystemExit(1)
 
     alg = Algorithm(manifest.algorithm)
-    key = f"{package_id}.tar.{alg.value}"
+    key = f"{package_id}.tar.{alg.value}" + (".enc" if manifest.encrypted else "")
 
     console.print(f"[cyan]Racing {len(chosen)} backend(s) for fastest download...[/cyan]")
     stream = _race_download_stream(chosen, key)
     if stream is None:
         console.print("[red]Download failed from all backends.[/red]")
         raise SystemExit(1)
+
+    if manifest.encrypted:
+        enc_key = get_encryption_key(config)
+        if not enc_key:
+            console.print("[red]Package is encrypted but no key configured.[/red]")
+            raise SystemExit(1)
+        from .encryption import DecryptReader
+        stream = DecryptReader(stream, enc_key)
 
     console.print(f"[cyan]Extracting to {dest}...[/cyan]")
     try:

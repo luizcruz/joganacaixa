@@ -16,6 +16,10 @@ _DEFAULT_CONFIG: dict = {
     "staging_dir": ".escorregador",
     "manifest_dir": ".etiqueta",
     "retries": 3,
+    "encryption": {
+        "enabled": False,
+        "key_file": "~/.joganacaixa.key",
+    },
 }
 
 _CONFIG_CANDIDATES = [
@@ -100,3 +104,38 @@ def get_zstd_level(config: dict) -> int:
 
 def get_retries(config: dict) -> int:
     return config.get("retries", 3)
+
+
+def get_encryption_key(config: dict) -> bytes | None:
+    """Return the AES-256 encryption key, or None if encryption is disabled."""
+    enc_cfg = config.get("encryption", {})
+    if not enc_cfg.get("enabled", False):
+        return None
+
+    passphrase_env = enc_cfg.get("passphrase_env")
+    if passphrase_env:
+        passphrase = os.environ.get(passphrase_env)
+        if not passphrase:
+            raise ValueError(f"Encryption passphrase env var {passphrase_env!r} is not set")
+        salt_path = Path("~/.joganacaixa.salt").expanduser()
+        if salt_path.exists():
+            salt = salt_path.read_bytes()
+        else:
+            salt = os.urandom(32)
+            salt_path.write_bytes(salt)
+            salt_path.chmod(0o600)
+        from .encryption import derive_key
+        key, _ = derive_key(passphrase, salt)
+        return key
+
+    key_file = Path(enc_cfg.get("key_file", "~/.joganacaixa.key")).expanduser()
+    if key_file.exists():
+        return key_file.read_bytes()
+
+    # Auto-generate a new key on first use
+    from .encryption import generate_key
+    key = generate_key()
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    key_file.write_bytes(key)
+    key_file.chmod(0o600)
+    return key
