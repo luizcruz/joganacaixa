@@ -204,6 +204,37 @@ main{position:relative;z-index:1;padding-top:var(--nav);min-height:100vh}
 @keyframes fiu{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{animation:spin .8s linear infinite}
+
+/* Faces */
+.face-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+.face-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px}
+.face-card{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:pointer;transition:all var(--t);animation:fiu .25s ease both}
+.face-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 12px 32px rgba(124,58,237,.2)}
+.face-thumb{width:100%;aspect-ratio:1;object-fit:cover;background:var(--s3);display:block}
+.face-thumb-placeholder{width:100%;aspect-ratio:1;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:36px;color:var(--muted2)}
+.face-info{padding:9px 11px}
+.face-id-short{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.face-count{font-size:12px;font-weight:600;color:var(--acl);margin-bottom:2px}
+
+/* Face modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(6px)}
+.modal-bg.hidden{display:none}
+.modal{background:var(--surface);border:1px solid var(--borderh);border-radius:16px;width:100%;max-width:700px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;animation:fiu .22s ease}
+.modal-head{padding:18px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.modal-face-img{width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);flex-shrink:0;background:var(--s3)}
+.modal-title{flex:1;min-width:0}
+.modal-title h2{font-size:16px;font-weight:600;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.modal-title p{font-size:12px;color:var(--muted)}
+.modal-close{width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all var(--t)}
+.modal-close:hover{border-color:var(--borderh);color:var(--text)}
+.modal-body{padding:18px 22px;overflow-y:auto;flex:1}
+.modal-body::-webkit-scrollbar{width:3px}
+.modal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.modal-footer{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
+.occ-list{display:flex;flex-direction:column;gap:8px}
+.occ-item{background:var(--s2);border:1px solid var(--border);border-radius:var(--rs);padding:10px 14px;font-size:12px}
+.occ-pkg{font-family:'JetBrains Mono',monospace;color:var(--acl);font-size:11px;margin-bottom:3px}
+.occ-path{color:var(--muted);word-break:break-all}
 </style>
 </head>
 <body>
@@ -251,6 +282,10 @@ main{position:relative;z-index:1;padding-top:var(--nav);min-height:100vh}
     <button class="tab" data-v="search">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       Search
+    </button>
+    <button class="tab" data-v="faces">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/></svg>
+      Faces
     </button>
   </div>
 
@@ -370,7 +405,58 @@ main{position:relative;z-index:1;padding-top:var(--nav);min-height:100vh}
     <div id="search-out" style="display:flex;flex-direction:column;gap:10px"></div>
   </section>
 
+  <section class="view" id="view-faces">
+    <div class="ph">
+      <h1>Faces</h1>
+      <p>Rostos detectados nas imagens armazenadas — clique em uma face para ver e baixar todas as imagens</p>
+    </div>
+    <div class="face-toolbar">
+      <span class="cbadge" id="face-count">— rostos</span>
+      <button class="refresh" onclick="loadFaces()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Atualizar
+      </button>
+      <button class="refresh" id="btn-index-all" onclick="indexAllFaces()" style="color:var(--acl);border-color:rgba(124,58,237,.3)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Indexar todos
+      </button>
+    </div>
+    <div class="face-grid" id="face-grid">
+      <div class="sk" style="height:160px;border-radius:12px"></div>
+      <div class="sk" style="height:160px;border-radius:12px"></div>
+      <div class="sk" style="height:160px;border-radius:12px"></div>
+      <div class="sk" style="height:160px;border-radius:12px"></div>
+    </div>
+  </section>
+
 </main>
+
+<!-- Face detail modal -->
+<div class="modal-bg hidden" id="face-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <img class="modal-face-img" id="modal-face-img" src="" alt="face">
+      <div class="modal-title">
+        <h2 id="modal-face-id">—</h2>
+        <p id="modal-face-meta">0 ocorrências em 0 pacotes</p>
+      </div>
+      <button class="modal-close" onclick="closeModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px">Imagens encontradas</div>
+      <div class="occ-list" id="modal-occ-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-g" onclick="closeModal()">Fechar</button>
+      <button class="btn btn-p" id="modal-dl-btn" onclick="downloadFaceImages()">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Baixar todas as imagens
+      </button>
+    </div>
+  </div>
+</div>
 <div id="toasts"></div>
 
 <script>
@@ -709,6 +795,120 @@ function toast(msg, type = 'info') {
 checkApi();
 setInterval(checkApi, 30000);
 loadDash();
+
+// ---- Faces ---------------------------------------------------------------
+
+const F = { currentFaceId: null };
+
+Object.assign(api, {
+  faces: () => api.json('/faces'),
+  face: id => api.json(`/faces/${id}`),
+  indexFaces: id => api.json(`/faces/index/${id}`, { method: 'POST' }),
+  indexAllFaces: () => api.json('/faces/index', { method: 'POST' }),
+  faceThumbnailUrl: id => `/faces/${id}/thumbnail`,
+  faceDownloadUrl: id => `/faces/${id}/images.zip`,
+});
+
+async function loadFaces() {
+  const grid = document.getElementById('face-grid');
+  const cnt  = document.getElementById('face-count');
+  grid.innerHTML = [0,1,2,3].map(() => `<div class="sk" style="height:160px;border-radius:12px"></div>`).join('');
+  try {
+    const faces = await api.faces();
+    cnt.textContent = `${faces.length} rosto${faces.length !== 1 ? 's' : ''}`;
+    if (!faces.length) {
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1">
+        <span class="empty-ico">👤</span>
+        <h3>Nenhum rosto indexado</h3>
+        <p>Clique em "Indexar todos" para detectar rostos nos pacotes armazenados</p>
+      </div>`;
+      return;
+    }
+    grid.innerHTML = faces.map((f, i) => faceCardHtml(f, i)).join('');
+  } catch (e) {
+    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--err);padding:40px;text-align:center">${e.message}</div>`;
+  }
+}
+
+function faceCardHtml(f, i) {
+  const thumb = f.has_thumbnail
+    ? `<img class="face-thumb" src="${api.faceThumbnailUrl(f.face_id)}" alt="face" onerror="this.outerHTML='<div class=face-thumb-placeholder>👤</div>'">`
+    : `<div class="face-thumb-placeholder">👤</div>`;
+  return `
+<div class="face-card" style="animation-delay:${Math.min(i*30,300)}ms" onclick="openFaceModal('${f.face_id}')">
+  ${thumb}
+  <div class="face-info">
+    <div class="face-count">${f.occurrence_count} imagem${f.occurrence_count !== 1 ? 'ns' : ''}</div>
+    <div class="face-id-short">${f.face_id}</div>
+  </div>
+</div>`;
+}
+
+async function openFaceModal(faceId) {
+  F.currentFaceId = faceId;
+  document.getElementById('face-modal').classList.remove('hidden');
+
+  const imgEl = document.getElementById('modal-face-img');
+  imgEl.src = api.faceThumbnailUrl(faceId);
+  document.getElementById('modal-face-id').textContent = faceId;
+  document.getElementById('modal-occ-list').innerHTML = `<div class="sk" style="height:48px;border-radius:8px"></div>`;
+  document.getElementById('modal-face-meta').textContent = 'Carregando…';
+
+  try {
+    const f = await api.face(faceId);
+    document.getElementById('modal-face-meta').textContent =
+      `${f.occurrences.length} ocorrência${f.occurrences.length !== 1 ? 's' : ''} em ${f.packages.length} pacote${f.packages.length !== 1 ? 's' : ''}`;
+    document.getElementById('modal-occ-list').innerHTML = f.occurrences.map(occ => `
+<div class="occ-item">
+  <div class="occ-pkg">${occ.package_id}</div>
+  <div class="occ-path">${occ.image_path}</div>
+</div>`).join('') || '<div style="color:var(--muted);font-size:13px">Nenhuma ocorrência</div>';
+  } catch (e) {
+    document.getElementById('modal-occ-list').innerHTML = `<div style="color:var(--err)">${e.message}</div>`;
+  }
+}
+
+function closeModal() {
+  document.getElementById('face-modal').classList.add('hidden');
+  F.currentFaceId = null;
+}
+
+function downloadFaceImages() {
+  if (!F.currentFaceId) return;
+  const a = document.createElement('a');
+  a.href = api.faceDownloadUrl(F.currentFaceId);
+  a.download = `${F.currentFaceId}_images.zip`;
+  a.click();
+  toast('Preparando download…', 'info');
+}
+
+async function indexAllFaces() {
+  const btn = document.getElementById('btn-index-all');
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="12" height="12" class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Indexando…';
+  try {
+    const results = await api.indexAllFaces();
+    const newF = results.reduce((s, r) => s + (r.new_faces || 0), 0);
+    const scanned = results.reduce((s, r) => s + (r.images_scanned || 0), 0);
+    toast(`Indexação completa: ${scanned} imagens, ${newF} novos rostos`, 'ok');
+    loadFaces();
+  } catch (e) {
+    toast('Erro ao indexar: ' + e.message, 'err');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Indexar todos';
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// extend nav to load faces on tab switch
+const _origNav = nav;
+// patch nav to also trigger loadFaces
+document.querySelectorAll('.tab').forEach(b => {
+  if (b.dataset.v === 'faces') {
+    b.addEventListener('click', () => loadFaces());
+  }
+});
 </script>
 </body>
 </html>
