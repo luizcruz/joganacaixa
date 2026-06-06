@@ -54,26 +54,52 @@ class StorageBackend(ABC):
     def delete(self, key: str) -> None:
         """Delete a package by key."""
 
-    def upload_stream(self, fileobj, key: str) -> str:
-        """Upload from a file-like object. Default: write to temp file then call upload()."""
+    def upload_stream(self, data, key: str) -> str:
+        """Upload from an iterable of bytes chunks or a file-like object.
+
+        Default: collect into a temp file then call upload().
+        """
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp_path = Path(tmp.name)
-            while True:
-                chunk = fileobj.read(65536)
-                if not chunk:
-                    break
-                tmp.write(chunk)
+            if hasattr(data, "read"):
+                while True:
+                    chunk = data.read(65536)
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+            else:
+                for chunk in data:
+                    tmp.write(chunk)
         try:
             return self.upload(tmp_path, key)
         finally:
             tmp_path.unlink(missing_ok=True)
 
-    def download_stream(self, key: str):
-        """Download to a temp file and return an open file handle."""
+    def download_stream(self, key: str, offset: int = 0):
+        """Download *key* and yield bytes chunks.
+
+        If *offset* > 0, skip the first *offset* bytes (resume support).
+        Default implementation downloads to a temp file.
+        """
         with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
             tmp_path = Path(tmp.name)
         self.download(key, tmp_path)
-        return open(tmp_path, "rb")
+        fh = open(tmp_path, "rb")
+        if offset > 0:
+            fh.seek(offset)
+
+        def _iter():
+            try:
+                while True:
+                    chunk = fh.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                fh.close()
+                tmp_path.unlink(missing_ok=True)
+
+        return _iter()
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name={self.name!r})"

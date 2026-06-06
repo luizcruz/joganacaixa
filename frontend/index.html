@@ -205,6 +205,32 @@ main{position:relative;z-index:1;padding-top:var(--nav);min-height:100vh}
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{animation:spin .8s linear infinite}
 
+/* Operations panel */
+.ops-panel{position:fixed;bottom:0;left:0;right:0;z-index:200;background:rgba(7,8,15,.96);border-top:1px solid var(--border);backdrop-filter:blur(20px);transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1)}
+.ops-panel.open{transform:translateY(0)}
+.ops-bar{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;user-select:none}
+.ops-bar-badge{background:var(--accent);color:#fff;border-radius:100px;padding:1px 8px;font-size:11px;font-weight:700}
+.ops-bar-title{font-size:13px;font-weight:500;flex:1}
+.ops-bar-chevron{color:var(--muted);transition:transform .3s}
+.ops-panel.open .ops-bar-chevron{transform:rotate(180deg)}
+.ops-list{max-height:260px;overflow-y:auto;padding:0 20px 14px}
+.ops-list::-webkit-scrollbar{width:3px}
+.ops-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.op-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
+.op-row:last-child{border-bottom:none}
+.op-icon{font-size:16px;flex-shrink:0}
+.op-info{flex:1;min-width:0}
+.op-label{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.op-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.op-pbar-wrap{flex:1;height:4px;background:var(--s3);border-radius:2px;overflow:hidden;min-width:60px;max-width:120px}
+.op-pbar{height:100%;border-radius:2px;transition:width .3s;background:linear-gradient(90deg,var(--accent),#4f46e5)}
+.op-pbar.no-conn{background:linear-gradient(90deg,var(--warn),#f59e0b)}
+.op-pbar.paused{background:var(--muted2)}
+.op-acts{display:flex;gap:5px;flex-shrink:0}
+.op-btn{padding:3px 9px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:inherit;font-size:11px;cursor:pointer;transition:all var(--t);white-space:nowrap}
+.op-btn:hover{border-color:var(--borderh);color:var(--text)}
+.op-btn.danger:hover{border-color:rgba(239,68,68,.4);color:var(--err)}
+
 /* Faces */
 .face-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:22px;flex-wrap:wrap}
 .face-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px}
@@ -430,6 +456,17 @@ main{position:relative;z-index:1;padding-top:var(--nav);min-height:100vh}
   </section>
 
 </main>
+
+<!-- Operations panel (bottom tray) -->
+<div class="ops-panel" id="ops-panel">
+  <div class="ops-bar" onclick="toggleOpsPanel()">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+    <span class="ops-bar-title">Operações ativas</span>
+    <span class="ops-bar-badge" id="ops-badge">0</span>
+    <svg class="ops-bar-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+  </div>
+  <div class="ops-list" id="ops-list"></div>
+</div>
 
 <!-- Face detail modal -->
 <div class="modal-bg hidden" id="face-modal" onclick="if(event.target===this)closeModal()">
@@ -689,13 +726,18 @@ async function upload(file) {
     const r = await api.upload(file, S.alg, p => setRing(p));
     document.getElementById('prog').classList.remove('on');
     drop.style.display = 'none';
-    document.getElementById('res-id').textContent = `Package ID: ${r.package_id}`;
-    document.getElementById('res-files').textContent = `${r.file_count} arquivo(s) indexado(s)`;
-    document.getElementById('res-locs').innerHTML = r.locations.map(l =>
-      `<span class="bt ${bcls(l)}">${l}</span>`).join('');
+    if (r._async) {
+      document.getElementById('res-id').textContent = `Operação: ${r.package_id}`;
+      document.getElementById('res-files').textContent = 'Upload em andamento — acompanhe em Operações ativas';
+      document.getElementById('res-locs').innerHTML = '';
+    } else {
+      document.getElementById('res-id').textContent = `Package ID: ${r.package_id}`;
+      document.getElementById('res-files').textContent = `${r.file_count} arquivo(s) indexado(s)`;
+      document.getElementById('res-locs').innerHTML = r.locations.map(l =>
+        `<span class="bt ${bcls(l)}">${l}</span>`).join('');
+    }
     document.getElementById('up-result').classList.add('on');
-    toast(`Backup concluído! Package ${r.package_id}`, 'ok');
-    loadDash();
+    if (!r._async) { toast(`Backup concluído! Package ${r.package_id}`, 'ok'); loadDash(); }
   } catch (e) {
     toast('Erro no upload: ' + e.message, 'err');
     resetStore();
@@ -795,6 +837,192 @@ function toast(msg, type = 'info') {
 checkApi();
 setInterval(checkApi, 30000);
 loadDash();
+
+// ---- Operations ----------------------------------------------------------
+
+const OPS = {
+  active: {},      // op_id → { op, es (EventSource) }
+  panelOpen: false,
+};
+
+Object.assign(api, {
+  startStore: (file, alg) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const url = `/store/resumable${alg ? '?algorithm=' + alg : ''}`;
+    return api.json(url, { method: 'POST', body: fd });
+  },
+  startRecover: id => api.json(`/recover/${id}/resumable`, { method: 'POST' }),
+  pauseOp:  id => api.json(`/operations/${id}/pause`,  { method: 'POST' }),
+  resumeOp: id => api.json(`/operations/${id}/resume`, { method: 'POST' }),
+  cancelOp: id => api.json(`/operations/${id}`,        { method: 'DELETE' }),
+});
+
+const STATUS_LABEL = {
+  pending:       'Aguardando…',
+  running:       'Em progresso',
+  paused:        'Pausado',
+  no_connection: 'Sem conexão — aguardando…',
+  completed:     'Concluído',
+  failed:        'Falhou',
+  cancelled:     'Cancelado',
+};
+
+const STATUS_ICON = {
+  pending: '⏳', running: '🔄', paused: '⏸️',
+  no_connection: '📡', completed: '✅', failed: '❌', cancelled: '🚫',
+};
+
+function trackOperation(opId, label, type) {
+  if (OPS.active[opId]) return;
+
+  const entry = { id: opId, label, type, status: 'pending', progress: 0, es: null };
+  OPS.active[opId] = entry;
+  renderOps();
+  openOpsPanel();
+
+  const es = new EventSource(`/operations/${opId}/events`);
+  entry.es = es;
+
+  es.onmessage = e => {
+    const data = JSON.parse(e.data);
+    const prev = entry.status;
+    entry.status   = data.status;
+    entry.progress = data.progress;
+    entry.error    = data.error;
+
+    // Alerts on state transitions
+    if (prev !== data.status) {
+      if (data.status === 'no_connection') {
+        toast(`Operação pausada — sem conexão (${label})`, 'err');
+      } else if (data.status === 'running' && prev === 'no_connection') {
+        toast(`Conexão restaurada — retomando (${label})`, 'ok');
+      } else if (data.status === 'paused' && prev === 'running') {
+        toast(`Operação pausada (${label})`, 'info');
+      } else if (data.status === 'running' && prev === 'paused') {
+        toast(`Operação retomada (${label})`, 'ok');
+      } else if (data.status === 'completed') {
+        toast(`Concluído: ${label}`, 'ok');
+        if (type === 'store') { loadDash(); loadPackages(); }
+      } else if (data.status === 'failed') {
+        toast(`Falhou: ${label} — ${data.error || ''}`, 'err');
+      }
+    }
+
+    renderOps();
+
+    if (['completed', 'failed', 'cancelled'].includes(data.status)) {
+      es.close();
+      // Remove from active after 8s
+      setTimeout(() => {
+        delete OPS.active[opId];
+        renderOps();
+      }, 8000);
+    }
+  };
+
+  es.onerror = () => {
+    // SSE connection dropped — not the same as op failure; just reconnect lazily
+  };
+}
+
+function renderOps() {
+  const entries = Object.values(OPS.active);
+  const badge = document.getElementById('ops-badge');
+  const list  = document.getElementById('ops-list');
+  badge.textContent = entries.length;
+
+  if (!entries.length) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">Nenhuma operação ativa</div>';
+    return;
+  }
+
+  list.innerHTML = entries.map(op => {
+    const pbarClass = op.status === 'no_connection' ? 'no-conn' : op.status === 'paused' ? 'paused' : '';
+    const canPause  = ['running'].includes(op.status);
+    const canResume = ['paused', 'no_connection'].includes(op.status);
+    const canCancel = !['completed', 'failed', 'cancelled'].includes(op.status);
+    return `
+<div class="op-row" id="oprow-${op.id}">
+  <span class="op-icon">${STATUS_ICON[op.status] || '🔄'}</span>
+  <div class="op-info">
+    <div class="op-label">${op.label}</div>
+    <div class="op-sub">${STATUS_LABEL[op.status] || op.status}</div>
+  </div>
+  <div class="op-pbar-wrap">
+    <div class="op-pbar ${pbarClass}" style="width:${op.progress}%"></div>
+  </div>
+  <span style="font-size:11px;color:var(--muted);flex-shrink:0;min-width:34px;text-align:right">${op.progress}%</span>
+  <div class="op-acts">
+    ${canPause  ? `<button class="op-btn" onclick="ctrlOp('pause','${op.id}')">Pausar</button>` : ''}
+    ${canResume ? `<button class="op-btn" onclick="ctrlOp('resume','${op.id}')">Retomar</button>` : ''}
+    ${canCancel ? `<button class="op-btn danger" onclick="ctrlOp('cancel','${op.id}')">✕</button>` : ''}
+  </div>
+</div>`;
+  }).join('');
+}
+
+async function ctrlOp(action, opId) {
+  const op = OPS.active[opId];
+  try {
+    if (action === 'pause')  await api.pauseOp(opId);
+    if (action === 'resume') await api.resumeOp(opId);
+    if (action === 'cancel') {
+      if (!confirm('Cancelar esta operação?')) return;
+      await api.cancelOp(opId);
+      if (op?.es) op.es.close();
+      delete OPS.active[opId];
+      renderOps();
+    }
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+  }
+}
+
+function openOpsPanel()  { document.getElementById('ops-panel').classList.add('open');    OPS.panelOpen = true; }
+function closeOpsPanel() { document.getElementById('ops-panel').classList.remove('open'); OPS.panelOpen = false; }
+function toggleOpsPanel(){ OPS.panelOpen ? closeOpsPanel() : openOpsPanel(); }
+
+// Override upload to use resumable endpoint and track via SSE
+const _origUpload = api.upload;
+api.upload = (file, alg, onProg) => {
+  // We'll still show old ring UI while compressing (server side),
+  // then switch to ops panel tracking.
+  return new Promise((res, rej) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const x = new XMLHttpRequest();
+    // No progress on this request — compression is on server
+    x.onload = () => {
+      if (x.status < 300) {
+        const r = JSON.parse(x.responseText);
+        // r = { operation_id }
+        // Tell the ring to show 100% (compression done)
+        if (onProg) onProg(1);
+        trackOperation(r.operation_id, file.name, 'store');
+        // Resolve immediately so UI resets; progress tracked via SSE
+        res({ package_id: r.operation_id, locations: [], file_count: 0, _async: true });
+      } else {
+        rej(new Error(x.responseText || x.statusText));
+      }
+    };
+    x.onerror = () => rej(new Error('Erro de rede'));
+    x.open('POST', `/store/resumable${alg ? '?algorithm=' + alg : ''}`);
+    x.send(fd);
+  });
+};
+
+// Override recover to use resumable endpoint
+const _origRecover = api.recover;
+api.recover = async id => {
+  try {
+    const r = await api.startRecover(id);
+    trackOperation(r.operation_id, id, 'recover');
+    toast(`Download iniciado — acompanhe em Operações`, 'info');
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+  }
+};
 
 // ---- Faces ---------------------------------------------------------------
 
