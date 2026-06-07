@@ -43,10 +43,45 @@ pip install -e ".[dev,faces]"
 
 ## Configuração
 
-Copie o arquivo de exemplo e edite com suas credenciais:
+### Configuração rápida (recomendado) ⚡
+
+A forma mais simples de começar é o assistente interativo, que instala as
+dependências do backend escolhido, grava o `~/.joganacaixa.yaml` e mostra
+um passo a passo de como configurar as credenciais:
 
 ```bash
-cp config.example.yaml .joganacaixa.yaml
+joganacaixa setup
+```
+
+O assistente vai:
+1. Perguntar quais backends você quer (local, s3, gcs, azure)
+2. Instalar os pacotes pip necessários para cada um
+3. Coletar os detalhes (bucket, região, etc.)
+4. Perguntar se quer criptografia
+5. Gravar o arquivo de configuração na sua home
+6. Imprimir as instruções de credenciais para cada backend
+
+**Modo não-interativo** (gera um config com placeholders para editar depois):
+
+```bash
+# Backend local apenas — funciona imediatamente, sem credenciais
+joganacaixa setup -b local
+
+# Múltiplos backends de uma vez
+joganacaixa setup -b s3 -b gcs
+
+# Pular instalação de dependências / escolher destino
+joganacaixa setup -b s3 --no-install -o ~/.joganacaixa.yaml --non-interactive
+```
+
+Depois confirme com `joganacaixa diagnose`.
+
+### Configuração manual
+
+Como alternativa, copie o arquivo de exemplo e edite com suas credenciais:
+
+```bash
+cp config.example.yaml ~/.joganacaixa.yaml
 ```
 
 O arquivo de configuração é opcional — sem ele, o tool usa compressão `zst` e nenhum backend de nuvem.
@@ -234,6 +269,14 @@ storage:
 ---
 
 ## Linha de Comando (CLI)
+
+### Configuração inicial
+
+```bash
+joganacaixa setup              # assistente interativo
+joganacaixa setup -b local     # configura só o backend local (sem credenciais)
+joganacaixa diagnose           # verifica qual config está carregado e os backends
+```
 
 ### Armazenar arquivos
 
@@ -478,6 +521,7 @@ joganacaixa/
 ├── operations.py    # máquina de estados de operações; SSE fan-out
 ├── resumable.py     # upload/download em chunks com pause/cancel/retry
 ├── reliability.py   # retry com backoff exponencial
+├── setup_wizard.py  # assistente de configuração interativo (joganacaixa setup)
 ├── encryption.py    # AES-256 encrypt/decrypt de arquivos
 └── storage/
     ├── base.py      # StorageBackend ABC

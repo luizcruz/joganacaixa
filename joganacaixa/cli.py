@@ -260,6 +260,34 @@ def recover(ctx: click.Context, package_id: str, dest: Path, backend: str | None
 
 
 @main.command()
+@click.option(
+    "--backend", "-b", "backends_opt",
+    multiple=True,
+    type=click.Choice(["local", "s3", "gcs", "azure"]),
+    help="Backend(s) to configure (skips interactive prompt). Repeatable.",
+)
+@click.option(
+    "--output", "-o", type=click.Path(path_type=Path),
+    help="Where to write the config file (default: ~/.joganacaixa.yaml)",
+)
+@click.option("--no-install", is_flag=True, default=False, help="Skip pip dependency installation")
+@click.option(
+    "--non-interactive", is_flag=True, default=False,
+    help="Write placeholder config without prompts (edit it afterwards)",
+)
+def setup(backends_opt: tuple, output: Path | None, no_install: bool, non_interactive: bool) -> None:
+    """Interactive setup: install prerequisites and write the config file."""
+    from .setup_wizard import run_setup, DEFAULT_CONFIG_PATH
+
+    run_setup(
+        backend_types=list(backends_opt) if backends_opt else None,
+        config_path=output or DEFAULT_CONFIG_PATH,
+        install=not no_install,
+        non_interactive=non_interactive,
+    )
+
+
+@main.command()
 @click.option("--host", default="0.0.0.0", show_default=True)
 @click.option("--port", default=8000, show_default=True, type=int)
 @click.option("--reload", is_flag=True, default=False, help="Enable auto-reload (dev mode)")
