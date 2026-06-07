@@ -64,7 +64,10 @@ class S3Backend(StorageBackend):
         self._s3.upload_file(**kwargs)
         return f"s3://{self.bucket}/{self._key(key)}"
 
-    def upload_stream(self, fileobj, key: str) -> str:
+    def upload_stream(self, data, key: str) -> str:
+        from .base import _IterReader
+        # boto3.upload_fileobj requires a file-like object; wrap generators
+        fileobj = data if hasattr(data, "read") else _IterReader(iter(data))
         extra_args = {"StorageClass": self.storage_class}
         kwargs = dict(
             Fileobj=fileobj,
@@ -77,9 +80,21 @@ class S3Backend(StorageBackend):
         self._s3.upload_fileobj(**kwargs)
         return f"s3://{self.bucket}/{self._key(key)}"
 
-    def download_stream(self, key: str):
+    def download_stream(self, key: str, offset: int = 0):
         full_key = self._key(key)
-        return self._s3.get_object(Bucket=self.bucket, Key=full_key)["Body"]
+        kwargs: dict = {"Bucket": self.bucket, "Key": full_key}
+        if offset > 0:
+            kwargs["Range"] = f"bytes={offset}-"
+        body = self._s3.get_object(**kwargs)["Body"]
+
+        def _iter():
+            while True:
+                chunk = body.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+
+        return _iter()
 
     def download(self, key: str, local_path: Path) -> None:
         local_path.parent.mkdir(parents=True, exist_ok=True)

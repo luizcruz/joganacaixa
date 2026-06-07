@@ -104,13 +104,132 @@ staging_dir: .escorregador
 manifest_dir: .etiqueta
 ```
 
-### Variáveis de ambiente para credenciais de nuvem
+### Configurando credenciais por backend
 
-| Backend | Variável de ambiente |
-|---------|----------------------|
-| AWS S3 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
-| GCS | `GOOGLE_APPLICATION_CREDENTIALS` (caminho para o JSON da service account) |
-| Azure | Configurado via `connection_string` no arquivo yaml |
+#### Backend local (sem credenciais — ideal para testes)
+
+Não precisa de nenhuma credencial. Basta apontar para um diretório:
+
+```yaml
+storage:
+  - type: local
+    root: /tmp/meu-backup
+```
+
+#### AWS S3
+
+**Opção 1 — AWS CLI (recomendado):**
+
+```bash
+pip install awscli
+aws configure
+# Preencha: AWS Access Key ID, Secret Access Key, região (ex: sa-east-1), formato (json)
+```
+
+Isso cria `~/.aws/credentials` e `~/.aws/config`, lidos automaticamente pelo boto3.
+
+**Opção 2 — variáveis de ambiente:**
+
+```bash
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_DEFAULT_REGION=sa-east-1
+```
+
+**Opção 3 — perfil nomeado** (útil para múltiplas contas):
+
+```bash
+aws configure --profile meu-perfil
+export AWS_PROFILE=meu-perfil
+```
+
+**Permissões IAM mínimas** necessárias para o bucket:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject",
+             "s3:ListBucket", "s3:CreateBucket", "s3:HeadBucket"],
+  "Resource": ["arn:aws:s3:::meu-bucket", "arn:aws:s3:::meu-bucket/*"]
+}
+```
+
+**Config yaml:**
+
+```yaml
+storage:
+  - type: s3
+    bucket: meu-bucket-backup
+    region: sa-east-1
+    storage_class: standard   # standard | glacier | deep_archive
+    prefix: backups/          # opcional — pasta dentro do bucket
+```
+
+#### Google Cloud Storage (GCS)
+
+**Passo 1 — criar service account:**
+
+1. Acesse [console.cloud.google.com/iam-admin/serviceaccounts](https://console.cloud.google.com/iam-admin/serviceaccounts)
+2. Clique em **Criar conta de serviço**
+3. Dê um nome (ex: `joganacaixa-backup`)
+4. Atribua o papel **Storage Admin** (ou crie um papel customizado com as permissões abaixo)
+5. Clique em **Chaves → Adicionar chave → JSON**
+6. Salve o arquivo baixado em um local seguro (ex: `~/.gcs-key.json`)
+
+**Permissões mínimas** no papel customizado:
+- `storage.buckets.create`
+- `storage.buckets.get`
+- `storage.objects.create`
+- `storage.objects.get`
+- `storage.objects.delete`
+- `storage.objects.list`
+
+**Passo 2 — apontar a variável:**
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=~/.gcs-key.json
+# Adicione ao ~/.bashrc ou ~/.zshrc para persistir
+```
+
+**Config yaml:**
+
+```yaml
+storage:
+  - type: gcs
+    bucket: meu-bucket-backup
+    region: southamerica-east1
+    storage_class: standard   # standard | nearline | coldline | archive
+    prefix: backups/
+```
+
+#### Azure Blob Storage
+
+**Passo 1 — obter a connection string:**
+
+1. Acesse o [portal.azure.com](https://portal.azure.com)
+2. Navegue até **Storage accounts → sua conta → Access keys**
+3. Copie a **Connection string** (começa com `DefaultEndpointsProtocol=https;...`)
+
+**Config yaml:**
+
+```yaml
+storage:
+  - type: azure
+    container: backups
+    connection_string: "DefaultEndpointsProtocol=https;AccountName=minhacontа;AccountKey=CHAVE==;EndpointSuffix=core.windows.net"
+    prefix: backups/
+```
+
+> ⚠️ A connection string contém credenciais sensíveis. Considere usar uma variável de ambiente:
+>
+> ```bash
+> export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;..."
+> ```
+>
+> E no yaml:
+> ```yaml
+> connection_string: "${AZURE_STORAGE_CONNECTION_STRING}"
+> ```
 
 ---
 

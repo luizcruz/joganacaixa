@@ -57,36 +57,44 @@ def build_backends(config: dict) -> list[StorageBackend]:
     backends: list[StorageBackend] = []
     for entry in config.get("storage", []):
         kind = entry.get("type")
-        if kind == "s3":
-            backends.append(
-                S3Backend(
-                    bucket=entry["bucket"],
-                    region=entry.get("region", "sa-east-1"),
-                    storage_class=entry.get("storage_class", "standard"),
-                    prefix=entry.get("prefix", ""),
+        try:
+            if kind == "s3":
+                backends.append(
+                    S3Backend(
+                        bucket=entry["bucket"],
+                        region=entry.get("region", "sa-east-1"),
+                        storage_class=entry.get("storage_class", "standard"),
+                        prefix=entry.get("prefix", ""),
+                    )
                 )
-            )
-        elif kind == "gcs":
-            backends.append(
-                GCSBackend(
-                    bucket=entry["bucket"],
-                    region=entry.get("region", "southamerica-east1"),
-                    storage_class=entry.get("storage_class", "standard"),
-                    prefix=entry.get("prefix", ""),
+            elif kind == "gcs":
+                backends.append(
+                    GCSBackend(
+                        bucket=entry["bucket"],
+                        region=entry.get("region", "southamerica-east1"),
+                        storage_class=entry.get("storage_class", "standard"),
+                        prefix=entry.get("prefix", ""),
+                    )
                 )
-            )
-        elif kind == "azure":
-            backends.append(
-                AzureBackend(
-                    container=entry["container"],
-                    connection_string=entry["connection_string"],
-                    prefix=entry.get("prefix", ""),
+            elif kind == "azure":
+                backends.append(
+                    AzureBackend(
+                        container=entry["container"],
+                        connection_string=entry["connection_string"],
+                        prefix=entry.get("prefix", ""),
+                    )
                 )
-            )
-        elif kind == "local":
-            backends.append(LocalBackend(root=entry["root"]))
-        else:
-            raise ValueError(f"Unknown storage type: {kind!r}")
+            elif kind == "local":
+                backends.append(LocalBackend(root=entry["root"]))
+            else:
+                raise ValueError(f"Unknown storage type: {kind!r}")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to initialise {kind!r} backend "
+                f"(bucket/container: {entry.get('bucket') or entry.get('container') or entry.get('root')!r}): "
+                f"{exc}\n\n"
+                f"Run `joganacaixa diagnose` to check your configuration."
+            ) from exc
     return backends
 
 

@@ -30,14 +30,16 @@ class AzureBackend(StorageBackend):
             blob.upload_blob(f, overwrite=True)
         return f"azure://{self.container}/{self._key(key)}"
 
-    def upload_stream(self, fileobj, key: str) -> str:
+    def upload_stream(self, data, key: str) -> str:
+        # Azure SDK accepts file-like objects; wrap generators
+        fileobj = data if hasattr(data, "read") else _IterReader(iter(data))
         blob_client = self._client.get_blob_client(container=self.container, blob=self._key(key))
         blob_client.upload_blob(fileobj, overwrite=True)
         return f"azure://{self.container}/{self._key(key)}"
 
-    def download_stream(self, key: str):
+    def download_stream(self, key: str, offset: int = 0):
         blob_client = self._client.get_blob_client(container=self.container, blob=self._key(key))
-        downloader = blob_client.download_blob()
+        downloader = blob_client.download_blob(offset=offset)
         return _IterReader(downloader.chunks())
 
     def download(self, key: str, local_path: Path) -> None:
