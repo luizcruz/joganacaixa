@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response, Streamin
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .compression import Algorithm, compress, extract, extract_from_stream, sha256_file
+from .compression import Algorithm, compress, extract, extract_from_stream, list_contents, sha256_file
 from .config import build_backends, get_algorithm, get_encryption_key, get_exclude_patterns, get_retries, get_zstd_level, load_config
 from .manifest import Manifest, build_manifest
 from .reliability import retry
@@ -187,6 +187,9 @@ async def store(
     tmp.unlink(missing_ok=True)
     checksum = sha256_file(archive)
 
+    # List contents while archive is still a plain tar (before encryption)
+    archive_files = list_contents(archive)
+
     # encrypt=False explicitly disables; encrypt=True or None uses config default
     enc_key = None if encrypt is False else get_encryption_key(_config)
     if enc_key:
@@ -213,8 +216,7 @@ async def store(
         archive.unlink(missing_ok=True)
         raise HTTPException(status_code=502, detail="Upload failed on all backends")
 
-    # Build manifest before deleting the archive (list_contents reads the file)
-    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted, files=archive_files)
     archive.unlink(missing_ok=True)
     manifest_path = manifest.save(_manifest_dir())
 
@@ -429,7 +431,7 @@ class OperationStarted(BaseModel):
     operation_id: str
 
 
-def _run_store(op_id: str, archive: Path, key: str, alg: Algorithm, checksum: str, encrypted: bool) -> None:
+def _run_store(op_id: str, archive: Path, key: str, alg: Algorithm, checksum: str, encrypted: bool, files: list[str]) -> None:
     """Background thread: upload archive with pause/resume, then build manifest."""
     op = registry.get(op_id)
     if op is None:
@@ -446,9 +448,9 @@ def _run_store(op_id: str, archive: Path, key: str, alg: Algorithm, checksum: st
             op.mark_failed("Upload failed on all backends")
         return
 
-    # Build and save manifest
+    # Build and save manifest (files already listed before encryption)
     package_id = key.split(".")[0]
-    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted, files=files)
     manifest_path = manifest.save(_manifest_dir())
     archive.unlink(missing_ok=True)
 
@@ -555,6 +557,9 @@ async def store_resumable(
     tmp.unlink(missing_ok=True)
     checksum = sha256_file(archive)
 
+    # List contents before encryption
+    archive_files = list_contents(archive)
+
     enc_key = None if encrypt is False else get_encryption_key(_config)
     if enc_key:
         from .encryption import encrypt_file
@@ -568,7 +573,7 @@ async def store_resumable(
 
     thread = threading.Thread(
         target=_run_store,
-        args=(op.id, archive, key, alg, checksum, enc_key is not None),
+        args=(op.id, archive, key, alg, checksum, enc_key is not None, archive_files),
         daemon=True,
         name=f"store-{op.id}",
     )

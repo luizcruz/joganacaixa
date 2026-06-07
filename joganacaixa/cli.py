@@ -93,6 +93,10 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
     checksum = sha256_file(archive)
     console.print(f"[green]Archive ready:[/green] {archive.name} ({size_kb:.1f} KB) sha256:{checksum[:12]}…")
 
+    # List contents while archive is still plain tar (before encryption)
+    from .compression import list_contents as _list_contents
+    archive_files = _list_contents(archive)
+
     enc_key = get_encryption_key(config)
     if enc_key:
         from .encryption import encrypt_file
@@ -124,7 +128,7 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
         console.print("[red]All uploads failed. Archive deleted.[/red]")
         raise SystemExit(1)
 
-    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted, files=archive_files)
     manifest_path = manifest.save(manifest_dir)
 
     # Back up manifest JSON to all backends
