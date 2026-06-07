@@ -46,3 +46,28 @@ def test_archive_suffix(tmp_path: Path, sample_dir: Path) -> None:
     for alg in Algorithm:
         archive = compress(sample_dir, tmp_path / f"pkg_{alg.value}", alg)
         assert archive.name.endswith(f".tar.{alg.value}")
+
+
+@pytest.mark.parametrize("alg", list(Algorithm))
+def test_single_file_roundtrip(tmp_path: Path, alg: Algorithm) -> None:
+    """A single file must keep its name (not become '.') so it extracts cleanly."""
+    src = tmp_path / "jupiter"
+    src.write_text("planet data")
+
+    archive = compress(src, tmp_path / "pkg", alg)
+    files = list_contents(archive)
+    # The file is stored under its own name, not '.'
+    assert "jupiter" in files
+    assert "." not in files
+
+    out = tmp_path / "out"
+    extract(archive, out)
+    assert (out / "jupiter").read_text() == "planet data"
+
+
+@pytest.mark.parametrize("alg", list(Algorithm))
+def test_single_file_searchable_by_name(tmp_path: Path, alg: Algorithm) -> None:
+    src = tmp_path / "jupiter.txt"
+    src.write_text("x")
+    archive = compress(src, tmp_path / "pkg", alg)
+    assert any("jupiter" in name for name in list_contents(archive))
