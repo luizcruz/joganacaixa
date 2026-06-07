@@ -12,6 +12,17 @@ class Algorithm(str, Enum):
     ZSTD = "zst"
 
 
+def _arcname(source: Path) -> str:
+    """Archive name for the top-level entry.
+
+    Directories use '.' so their *contents* extract directly into the
+    destination. Single files keep their own name, otherwise a lone file
+    would be stored as '.' and clash with the destination directory on
+    extraction (IsADirectoryError).
+    """
+    return "." if source.is_dir() else source.name
+
+
 def compress(
     source: Path,
     dest: Path,
@@ -26,24 +37,25 @@ def compress(
         dest = Path(str(dest) + suffix)
 
     filter_fn = _make_exclude_filter(exclude_patterns) if exclude_patterns else None
+    arcname = _arcname(source)
 
     if algorithm == Algorithm.ZSTD:
-        _compress_zstd(source, dest, filter_fn, level=level)
+        _compress_zstd(source, dest, filter_fn, level=level, arcname=arcname)
     else:
         with tarfile.open(dest, f"w:{algorithm.value}") as tar:
-            tar.add(source, arcname=".", filter=filter_fn)
+            tar.add(source, arcname=arcname, filter=filter_fn)
 
     return dest
 
 
-def _compress_zstd(source: Path, dest: Path, filter_fn, level: int = 3) -> None:
+def _compress_zstd(source: Path, dest: Path, filter_fn, level: int = 3, arcname: str = ".") -> None:
     import zstandard as zstd
 
     cctx = zstd.ZstdCompressor(level=level, threads=-1)
     with open(dest, "wb") as f:
         with cctx.stream_writer(f, closefd=False) as compressor:
             with tarfile.open(fileobj=compressor, mode="w|") as tar:
-                tar.add(source, arcname=".", filter=filter_fn)
+                tar.add(source, arcname=arcname, filter=filter_fn)
 
 
 def sha256_file(path: Path) -> str:

@@ -20,16 +20,24 @@ class LocalBackend(StorageBackend):
         dest = self.root / key
         dest.parent.mkdir(parents=True, exist_ok=True)
         with open(dest, "wb") as f:
-            while True:
-                chunk = fileobj.read(65536)
-                if not chunk:
-                    break
-                f.write(chunk)
+            if hasattr(fileobj, "read"):
+                while True:
+                    chunk = fileobj.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            else:
+                # iterable / generator of bytes chunks
+                for chunk in fileobj:
+                    f.write(chunk)
         return f"local://{dest}"
 
-    def download_stream(self, key: str):
+    def download_stream(self, key: str, offset: int = 0):
         path = self.root / key
-        return open(path, "rb")
+        f = open(path, "rb")
+        if offset:
+            f.seek(offset)
+        return f
 
     def download(self, key: str, local_path: Path) -> None:
         src = self.root / key
