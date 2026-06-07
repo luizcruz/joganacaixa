@@ -47,3 +47,30 @@ def test_upload_returns_uri(backend: LocalBackend, sample_file: Path) -> None:
 def test_download_missing_raises(backend: LocalBackend, tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         backend.download("nonexistent.tar.gz", tmp_path / "out.tar.gz")
+
+
+def test_upload_stream_accepts_generator(backend: LocalBackend) -> None:
+    """resumable.py feeds a generator of byte chunks, not a file object."""
+    def chunks():
+        yield b"hello "
+        yield b"world"
+
+    loc = backend.upload_stream(chunks(), "gen.bin")
+    assert loc.startswith("local://")
+    dest = backend.root / "gen.bin"
+    assert dest.read_bytes() == b"hello world"
+
+
+def test_upload_stream_accepts_file_object(backend: LocalBackend, sample_file: Path) -> None:
+    with open(sample_file, "rb") as fh:
+        backend.upload_stream(fh, "fromfile.bin")
+    assert (backend.root / "fromfile.bin").read_bytes() == b"fake-archive-bytes"
+
+
+def test_download_stream_offset_resumes(backend: LocalBackend) -> None:
+    backend.upload_stream((c for c in [b"hello world"]), "off.bin")
+    stream = backend.download_stream("off.bin", offset=6)
+    try:
+        assert stream.read() == b"world"
+    finally:
+        stream.close()
