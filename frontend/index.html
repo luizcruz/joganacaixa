@@ -502,7 +502,11 @@ const S = { pkgs: [], alg: 'zst', busy: false };
 const api = {
   async _r(path, o = {}) {
     const r = await fetch(path, o);
-    if (!r.ok) { const t = await r.text().catch(() => r.statusText); throw new Error(t); }
+    if (!r.ok) {
+      let msg = r.statusText;
+      try { const j = await r.json(); msg = j.detail || j.message || JSON.stringify(j); } catch { msg = await r.text().catch(() => r.statusText); }
+      throw new Error(msg);
+    }
     return r;
   },
   json: (p, o) => api._r(p, o).then(r => r.json()),
@@ -720,25 +724,27 @@ async function upload(file) {
   document.getElementById('drop-default').style.display = 'none';
   document.getElementById('up-result').classList.remove('on');
   document.getElementById('prog').classList.add('on');
-  document.getElementById('prog-lbl').textContent = `Enviando ${file.name}…`;
+  document.getElementById('prog-lbl').textContent = `Comprimindo ${file.name}…`;
   setRing(0);
   try {
     const r = await api.upload(file, S.alg, p => setRing(p));
     document.getElementById('prog').classList.remove('on');
-    drop.style.display = 'none';
     if (r._async) {
-      document.getElementById('res-id').textContent = `Operação: ${r.package_id}`;
-      document.getElementById('res-files').textContent = 'Upload em andamento — acompanhe em Operações ativas';
-      document.getElementById('res-locs').innerHTML = '';
+      // Async path: reset store UI and let ops panel show progress
+      resetStore();
+      toast(`Enviando ${file.name} — acompanhe em Operações ativas ↓`, 'info');
     } else {
+      drop.style.display = 'none';
       document.getElementById('res-id').textContent = `Package ID: ${r.package_id}`;
       document.getElementById('res-files').textContent = `${r.file_count} arquivo(s) indexado(s)`;
       document.getElementById('res-locs').innerHTML = r.locations.map(l =>
         `<span class="bt ${bcls(l)}">${l}</span>`).join('');
+      document.getElementById('up-result').classList.add('on');
+      toast(`Backup concluído! Package ${r.package_id}`, 'ok');
+      loadDash();
     }
-    document.getElementById('up-result').classList.add('on');
-    if (!r._async) { toast(`Backup concluído! Package ${r.package_id}`, 'ok'); loadDash(); }
   } catch (e) {
+    document.getElementById('prog').classList.remove('on');
     toast('Erro no upload: ' + e.message, 'err');
     resetStore();
   }
@@ -922,7 +928,27 @@ function trackOperation(opId, label, type) {
   };
 
   es.onerror = () => {
-    // SSE connection dropped — not the same as op failure; just reconnect lazily
+    if (['completed', 'failed', 'cancelled'].includes(entry.status)) return;
+    // SSE dropped unexpectedly — check op status once via REST
+    api.json(`/operations/${opId}`).then(op => {
+      entry.status   = op.status;
+      entry.progress = op.progress;
+      entry.error    = op.error;
+      renderOps();
+      if (['completed', 'failed', 'cancelled'].includes(op.status)) {
+        es.close();
+        if (op.status === 'completed' && type === 'store') { loadDash(); loadPackages(); }
+        if (op.status === 'failed') toast(`Falhou: ${label} — ${op.error || 'erro desconhecido'}`, 'err');
+        setTimeout(() => { delete OPS.active[opId]; renderOps(); }, 8000);
+      }
+    }).catch(() => {
+      // Server unreachable — show as failed in UI
+      entry.status = 'failed';
+      entry.error  = 'Conexão com servidor perdida';
+      renderOps();
+      toast(`Conexão perdida durante: ${label}`, 'err');
+      setTimeout(() => { delete OPS.active[opId]; renderOps(); }, 8000);
+    });
   };
 }
 
