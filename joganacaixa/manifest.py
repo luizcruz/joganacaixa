@@ -88,11 +88,12 @@ def build_manifest(
     locations: list[str],
     checksum: str | None = None,
     encrypted: bool = False,
+    files: list[str] | None = None,
 ) -> Manifest:
     return Manifest(
         package_id=package_id,
         algorithm=algorithm.value,
-        files=list_contents(archive),
+        files=files if files is not None else list_contents(archive),
         locations=locations,
         checksum=checksum,
         encrypted=encrypted,

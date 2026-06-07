@@ -93,6 +93,10 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
     checksum = sha256_file(archive)
     console.print(f"[green]Archive ready:[/green] {archive.name} ({size_kb:.1f} KB) sha256:{checksum[:12]}…")
 
+    # List contents while archive is still plain tar (before encryption)
+    from .compression import list_contents as _list_contents
+    archive_files = _list_contents(archive)
+
     enc_key = get_encryption_key(config)
     if enc_key:
         from .encryption import encrypt_file
@@ -124,7 +128,7 @@ def store(ctx: click.Context, source: Path, algorithm: str | None) -> None:
         console.print("[red]All uploads failed. Archive deleted.[/red]")
         raise SystemExit(1)
 
-    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted, files=archive_files)
     manifest_path = manifest.save(manifest_dir)
 
     # Back up manifest JSON to all backends
@@ -257,6 +261,34 @@ def recover(ctx: click.Context, package_id: str, dest: Path, backend: str | None
         console.print(f"[dim]Checksum verified (sha256:{manifest.checksum[:12]}…)[/dim]")
 
     console.print(f"[green]Done.[/green] {len(manifest.files)} files extracted to {dest}")
+
+
+@main.command()
+@click.option(
+    "--backend", "-b", "backends_opt",
+    multiple=True,
+    type=click.Choice(["local", "s3", "gcs", "azure"]),
+    help="Backend(s) to configure (skips interactive prompt). Repeatable.",
+)
+@click.option(
+    "--output", "-o", type=click.Path(path_type=Path),
+    help="Where to write the config file (default: ~/.joganacaixa.yaml)",
+)
+@click.option("--no-install", is_flag=True, default=False, help="Skip pip dependency installation")
+@click.option(
+    "--non-interactive", is_flag=True, default=False,
+    help="Write placeholder config without prompts (edit it afterwards)",
+)
+def setup(backends_opt: tuple, output: Path | None, no_install: bool, non_interactive: bool) -> None:
+    """Interactive setup: install prerequisites and write the config file."""
+    from .setup_wizard import run_setup, DEFAULT_CONFIG_PATH
+
+    run_setup(
+        backend_types=list(backends_opt) if backends_opt else None,
+        config_path=output or DEFAULT_CONFIG_PATH,
+        install=not no_install,
+        non_interactive=non_interactive,
+    )
 
 
 @main.command()
