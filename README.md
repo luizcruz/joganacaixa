@@ -14,6 +14,7 @@ Ferramenta de backup multi-cloud com compressão plugável, redundância automá
 - [Reconhecimento Facial](#reconhecimento-facial)
 - [Operações Resumíveis](#operações-resumíveis)
 - [Arquitetura](#arquitetura)
+- [Solução de Problemas](#solução-de-problemas)
 
 ---
 
@@ -394,6 +395,95 @@ pytest tests/test_compression.py -v
 pytest tests/test_operations.py -v
 pytest tests/test_faces.py -v
 ```
+
+---
+
+---
+
+## Solução de Problemas
+
+### "No storage backends configured" na interface web
+
+**Causa mais comum:** o arquivo de configuração carregado pelo servidor não é o seu `~/.joganacaixa.yaml`.
+
+**Diagnóstico rápido:**
+
+```bash
+joganacaixa diagnose
+```
+
+Saída esperada:
+```
+Config file: /home/seu-usuario/.joganacaixa.yaml
+Compression: zst
+Backends (2):
+  ✓ s3   meu-bucket
+  ✓ local /tmp/backup
+```
+
+Se aparecer `none found — using built-in defaults`, nenhum arquivo de config foi encontrado.
+
+**Por que o `~/.joganacaixa.yaml` pode ser ignorado:**
+
+O arquivo é procurado nesta ordem de prioridade:
+1. `.joganacaixa.yaml` no **diretório atual** (CWD)
+2. `.joganacaixa.yml` no **diretório atual**
+3. `~/.joganacaixa.yaml` (global)
+
+Se você rodar `joganacaixa serve` de dentro de um diretório que já tenha um `.joganacaixa.yaml` (mesmo vazio ou incompleto), ele prevalece sobre o global.
+
+**Soluções:**
+
+```bash
+# Opção 1 — passar o caminho explicitamente
+joganacaixa --config ~/.joganacaixa.yaml serve
+
+# Opção 2 — usar variável de ambiente
+export JOGANACAIXA_CONFIG=~/.joganacaixa.yaml
+joganacaixa serve
+
+# Opção 3 — rodar o serve a partir da sua home
+cd ~
+joganacaixa serve
+```
+
+### Verificar sintaxe do YAML
+
+```bash
+python3 -c "import yaml; yaml.safe_load(open('~/.joganacaixa.yaml'.replace('~', __import__('os').path.expanduser('~'))))" && echo "OK"
+```
+
+### A seção `storage:` existe mas está vazia
+
+Certifique-se de que o YAML tem pelo menos uma entrada de backend **sem comentários**:
+
+```yaml
+# ✗ errado — sem entradas reais
+storage:
+  # - type: s3
+  #   bucket: ...
+
+# ✓ correto — pelo menos um backend ativo
+storage:
+  - type: local
+    root: /tmp/meu-backup
+```
+
+Para testar sem credenciais de nuvem, use o backend `local`:
+
+```yaml
+storage:
+  - type: local
+    root: /tmp/joganacaixa-test
+```
+
+### Credenciais de nuvem
+
+| Backend | O que verificar |
+|---------|-----------------|
+| S3 | `aws configure list` ou variáveis `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` |
+| GCS | `echo $GOOGLE_APPLICATION_CREDENTIALS` aponta para um JSON válido |
+| Azure | `connection_string` no yaml está correto |
 
 ---
 

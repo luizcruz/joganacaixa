@@ -51,6 +51,16 @@ def main(ctx: click.Context, config: Path | None) -> None:
     """Joga na caixa — multi-cloud backup with robust compression."""
     ctx.ensure_object(dict)
     ctx.obj["config"] = load_config(config)
+    ctx.obj["config_path"] = config
+    # Store the resolved path that was actually loaded
+    from .config import _CONFIG_CANDIDATES
+    candidates = [config] if config else _CONFIG_CANDIDATES
+    for c in candidates:
+        if c and c.expanduser().exists():
+            ctx.obj["config_path_resolved"] = str(c.expanduser().resolve())
+            break
+    else:
+        ctx.obj["config_path_resolved"] = "none found — using built-in defaults"
 
 
 @main.command()
@@ -253,8 +263,50 @@ def recover(ctx: click.Context, package_id: str, dest: Path, backend: str | None
 @click.option("--host", default="0.0.0.0", show_default=True)
 @click.option("--port", default=8000, show_default=True, type=int)
 @click.option("--reload", is_flag=True, default=False, help="Enable auto-reload (dev mode)")
-def serve(host: str, port: int, reload: bool) -> None:
+@click.pass_context
+def serve(ctx: click.Context, host: str, port: int, reload: bool) -> None:
     """Start the REST API server."""
+    import os
     import uvicorn
 
+    # Propagate the --config path so api.py (loaded by uvicorn) finds the same file
+    cfg_path: Path | None = ctx.obj.get("config_path")
+    if cfg_path:
+        os.environ["JOGANACAIXA_CONFIG"] = str(cfg_path.expanduser().resolve())
+
     uvicorn.run("joganacaixa.api:app", host=host, port=port, reload=reload)
+
+
+@main.command()
+@click.pass_context
+def diagnose(ctx: click.Context) -> None:
+    """Show which config file is loaded and what backends are configured."""
+    import os
+
+    config = ctx.obj["config"]
+    config_path = ctx.obj.get("config_path_resolved", "auto-detected")
+
+    console.print(f"\n[bold]Config file:[/bold] {config_path}")
+    console.print(f"[bold]Compression:[/bold] {config.get('compression', {}).get('algorithm', 'zst')}")
+    console.print(f"[bold]Staging dir:[/bold] {config.get('staging_dir', '.escorregador')}")
+    console.print(f"[bold]Manifest dir:[/bold] {config.get('manifest_dir', '.etiqueta')}")
+
+    storage = config.get("storage", [])
+    if not storage:
+        console.print("\n[red]⚠ No storage backends configured.[/red]")
+        console.print("  Add at least one backend to your config file.")
+        console.print("  Example: copy config.example.yaml to ~/.joganacaixa.yaml")
+    else:
+        console.print(f"\n[bold]Backends ({len(storage)}):[/bold]")
+        for entry in storage:
+            kind = entry.get("type", "unknown")
+            detail = entry.get("bucket") or entry.get("container") or entry.get("root") or ""
+            console.print(f"  [green]✓[/green] {kind}  [dim]{detail}[/dim]")
+
+    enc = config.get("encryption", {})
+    if enc.get("enabled", True):
+        key_file = Path(enc.get("key_file", "~/.joganacaixa.key")).expanduser()
+        status = "[green]key exists[/green]" if key_file.exists() else "[yellow]will be auto-generated on first use[/yellow]"
+        console.print(f"\n[bold]Encryption:[/bold] enabled — {status} ({key_file})")
+    else:
+        console.print("\n[bold]Encryption:[/bold] [yellow]disabled[/yellow]")
