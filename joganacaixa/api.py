@@ -1,3 +1,6 @@
+import asyncio
+import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -12,6 +15,8 @@ from .config import build_backends, get_algorithm, get_encryption_key, get_exclu
 from .manifest import Manifest, build_manifest
 from .reliability import retry
 from . import faces as face_lib
+from .operations import registry, Status
+from . import resumable as resumable_lib
 
 app = FastAPI(
     title="Joga na Caixa",
@@ -400,4 +405,269 @@ def download_face_images(face_id: str) -> StreamingResponse:
         generate(),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{face_id}_images.zip"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Resumable operations
+# ---------------------------------------------------------------------------
+
+class OperationOut(BaseModel):
+    id: str
+    type: str
+    label: str
+    status: str
+    progress: int
+    transferred: int
+    total: int
+    error: str | None = None
+    created_at: float
+    updated_at: float
+
+
+class OperationStarted(BaseModel):
+    operation_id: str
+
+
+def _run_store(op_id: str, archive: Path, key: str, alg: Algorithm, checksum: str, encrypted: bool) -> None:
+    """Background thread: upload archive with pause/resume, then build manifest."""
+    op = registry.get(op_id)
+    if op is None:
+        return
+
+    backends = build_backends(_config)
+    op.mark_running()
+
+    locations = resumable_lib.upload_to_backends(backends, archive, key, op)
+
+    if not locations or op.status is Status.CANCELLED:
+        archive.unlink(missing_ok=True)
+        if op.status is not Status.CANCELLED:
+            op.mark_failed("Upload failed on all backends")
+        return
+
+    # Build and save manifest
+    package_id = key.split(".")[0]
+    manifest = build_manifest(package_id, archive, alg, locations, checksum=checksum, encrypted=encrypted)
+    manifest_path = manifest.save(_manifest_dir())
+    archive.unlink(missing_ok=True)
+
+    # Back up manifest to all backends (best-effort)
+    manifest_key = f"{package_id}.manifest.json"
+    for b in backends:
+        try:
+            b.upload(manifest_path, manifest_key)
+        except Exception:
+            pass
+
+    op.mark_completed(result={
+        "package_id": package_id,
+        "locations": locations,
+        "file_count": len(manifest.files),
+    })
+
+
+def _run_recover(op_id: str, package_id: str, backend_prefix: str | None) -> None:
+    """Background thread: download archive with pause/resume."""
+    op = registry.get(op_id)
+    if op is None:
+        return
+
+    manifest = Manifest.load(package_id, _manifest_dir())
+    backends = build_backends(_config)
+    chosen = [b for b in backends if not backend_prefix or b.name.startswith(backend_prefix)]
+    if not chosen:
+        op.mark_failed("No matching backend")
+        return
+
+    alg = Algorithm(manifest.algorithm)
+    key = f"{package_id}.tar.{alg.value}" + (".enc" if manifest.encrypted else "")
+    dest = _staging_dir() / key
+
+    op.mark_running()
+
+    # Try backends in order until one succeeds
+    success = False
+    for backend in chosen:
+        if not op.check():
+            break
+        try:
+            resumable_lib.download_with_progress(backend, key, dest, op)
+            success = True
+            break
+        except InterruptedError:
+            break
+        except Exception:
+            op.mark_no_connection()
+            op._pause.wait()
+            if op._cancel.is_set():
+                break
+            op.mark_running()
+
+    if not success or op.status is Status.CANCELLED:
+        dest.unlink(missing_ok=True)
+        if op.status is not Status.CANCELLED:
+            op.mark_failed("Download failed from all backends")
+        return
+
+    if manifest.encrypted:
+        enc_key = get_encryption_key(_config)
+        if not enc_key:
+            dest.unlink(missing_ok=True)
+            op.mark_failed("Package is encrypted but no key configured")
+            return
+        from .encryption import decrypt_file
+        plain_key = f"{package_id}.tar.{alg.value}"
+        plain = _staging_dir() / plain_key
+        decrypt_file(dest, plain, enc_key)
+        dest.unlink(missing_ok=True)
+        dest = plain
+
+    op.mark_completed(result={"package_id": package_id, "archive": str(dest)})
+
+
+@app.post("/store/resumable", response_model=OperationStarted, status_code=202)
+async def store_resumable(
+    file: UploadFile = File(...),
+    algorithm: str | None = Query(default=None),
+    encrypt: bool | None = Query(default=None),
+) -> OperationStarted:
+    """Start a resumable upload. Returns an operation_id to track progress."""
+    backends = build_backends(_config)
+    if not backends:
+        raise HTTPException(status_code=503, detail="No storage backends configured")
+
+    alg = Algorithm(algorithm) if algorithm else get_algorithm(_config)
+    staging = _staging_dir()
+    package_id = str(int(time.time()))
+    level = get_zstd_level(_config)
+
+    # Save uploaded file and compress it (fast, in-request)
+    tmp = staging / (file.filename or package_id)
+    with open(tmp, "wb") as f:
+        while True:
+            chunk = await file.read(65536)
+            if not chunk:
+                break
+            f.write(chunk)
+
+    archive = compress(tmp, staging / package_id, alg, get_exclude_patterns(_config), level=level)
+    tmp.unlink(missing_ok=True)
+    checksum = sha256_file(archive)
+
+    enc_key = None if encrypt is False else get_encryption_key(_config)
+    if enc_key:
+        from .encryption import encrypt_file
+        enc_archive = Path(str(archive) + ".enc")
+        encrypt_file(archive, enc_archive, enc_key)
+        archive.unlink()
+        archive = enc_archive
+
+    key = archive.name
+    op = registry.create("store", label=file.filename or package_id)
+
+    thread = threading.Thread(
+        target=_run_store,
+        args=(op.id, archive, key, alg, checksum, enc_key is not None),
+        daemon=True,
+        name=f"store-{op.id}",
+    )
+    thread.start()
+
+    return OperationStarted(operation_id=op.id)
+
+
+@app.post("/recover/{package_id}/resumable", response_model=OperationStarted, status_code=202)
+def recover_resumable(
+    package_id: str,
+    backend: str | None = Query(default=None),
+) -> OperationStarted:
+    """Start a resumable download. Returns an operation_id to track progress."""
+    _get_manifest(package_id)   # 404 early if not found
+    op = registry.create("recover", label=package_id)
+
+    thread = threading.Thread(
+        target=_run_recover,
+        args=(op.id, package_id, backend),
+        daemon=True,
+        name=f"recover-{op.id}",
+    )
+    thread.start()
+
+    return OperationStarted(operation_id=op.id)
+
+
+@app.get("/operations", response_model=list[OperationOut])
+def list_operations() -> list[OperationOut]:
+    """List all active and recent operations."""
+    return [OperationOut(**op.to_dict()) for op in registry.list_all()]
+
+
+@app.get("/operations/{op_id}", response_model=OperationOut)
+def get_operation(op_id: str) -> OperationOut:
+    op = registry.get(op_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail=f"Operation {op_id!r} not found")
+    return OperationOut(**op.to_dict())
+
+
+@app.post("/operations/{op_id}/pause", response_model=OperationOut)
+def pause_operation(op_id: str) -> OperationOut:
+    op = registry.get(op_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail=f"Operation {op_id!r} not found")
+    op.pause()
+    return OperationOut(**op.to_dict())
+
+
+@app.post("/operations/{op_id}/resume", response_model=OperationOut)
+def resume_operation(op_id: str) -> OperationOut:
+    op = registry.get(op_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail=f"Operation {op_id!r} not found")
+    op.resume()
+    return OperationOut(**op.to_dict())
+
+
+@app.delete("/operations/{op_id}", response_model=OperationOut)
+def cancel_operation(op_id: str) -> OperationOut:
+    op = registry.get(op_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail=f"Operation {op_id!r} not found")
+    op.cancel()
+    return OperationOut(**op.to_dict())
+
+
+@app.get("/operations/{op_id}/events")
+async def operation_events(op_id: str) -> StreamingResponse:
+    """Server-Sent Events stream for real-time operation progress."""
+    op = registry.get(op_id)
+    if op is None:
+        raise HTTPException(status_code=404, detail=f"Operation {op_id!r} not found")
+
+    loop = asyncio.get_running_loop()
+    q = op.subscribe(loop)
+
+    async def _stream():
+        # Send current state immediately
+        yield f"data: {json.dumps(op.to_dict())}\n\n"
+        try:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(q.get(), timeout=25.0)
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    if payload.get("status") in ("completed", "failed", "cancelled"):
+                        break
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            op.unsubscribe(q)
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )

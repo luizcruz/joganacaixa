@@ -49,15 +49,32 @@ class GCSBackend(StorageBackend):
         blob.upload_from_filename(str(local_path))
         return f"gs://{self.bucket_name}/{self._key(key)}"
 
-    def upload_stream(self, fileobj, key: str) -> str:
+    def upload_stream(self, data, key: str) -> str:
+        from .base import _IterReader
+        # GCS client requires a file-like object; wrap generators
+        fileobj = data if hasattr(data, "read") else _IterReader(iter(data))
         blob = self._bucket.blob(self._key(key))
         blob.storage_class = self.storage_class
         blob.upload_from_file(fileobj)
         return f"gs://{self.bucket_name}/{self._key(key)}"
 
-    def download_stream(self, key: str):
+    def download_stream(self, key: str, offset: int = 0):
         blob = self._bucket.blob(self._key(key))
-        return blob.open(mode="rb")
+        fh = blob.open(mode="rb")
+        if offset > 0:
+            fh.seek(offset)
+
+        def _iter():
+            try:
+                while True:
+                    chunk = fh.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                fh.close()
+
+        return _iter()
 
     def download(self, key: str, local_path: Path) -> None:
         local_path.parent.mkdir(parents=True, exist_ok=True)
